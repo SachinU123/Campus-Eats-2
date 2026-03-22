@@ -6,6 +6,9 @@ class MockAuthData {
   static const String studentPassword = 'student123';
   static const String canteenPassword = 'canteen123';
 
+  /// The fixed mock OTP for canteen staff (demo only).
+  static const String canteenOtp = '1234';
+
   static const List<UserProfile> mockStudents = [
     UserProfile(
       id: 'stu001',
@@ -48,16 +51,31 @@ class MockAuthData {
     ),
   ];
 
+  /// Email + password login (used for student side).
   static UserProfile? login(String email, String password) {
     // Student login
     final student = mockStudents.where((u) => u.email == email).firstOrNull;
     if (student != null && password == studentPassword) return student;
 
-    // Canteen login
-    final canteen = mockCanteenStaff.where((u) => u.email == email).firstOrNull;
+    // Canteen email login (fallback for old demo credentials)
+    final canteen =
+        mockCanteenStaff.where((u) => u.email == email).firstOrNull;
     if (canteen != null && password == canteenPassword) return canteen;
 
     return null;
+  }
+
+  /// Phone + OTP login (used for canteen side).
+  static UserProfile? loginByPhone(String phone) {
+    return mockCanteenStaff.where((u) => u.phone == phone).firstOrNull;
+  }
+
+  /// Validates the OTP for a given phone number.
+  /// For the mock, any registered canteen phone number accepts otp '1234'.
+  static bool validateCanteenOtp(String phone, String otp) {
+    final isRegistered =
+        mockCanteenStaff.any((u) => u.phone == phone);
+    return isRegistered && otp == canteenOtp;
   }
 
   static UserProfile register({

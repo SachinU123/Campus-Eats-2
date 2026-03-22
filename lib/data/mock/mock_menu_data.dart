@@ -5,11 +5,13 @@ class MockMenuData {
   MockMenuData._();
 
   static const List<MenuCategory> categories = [
-    MenuCategory(id: 'popular', name: 'Popular', emoji: 'star'),
+    MenuCategory(id: 'all', name: 'All', emoji: 'all'),
     MenuCategory(id: 'breakfast', name: 'Breakfast', emoji: 'sunrise'),
     MenuCategory(id: 'meals', name: 'Meals', emoji: 'meal'),
     MenuCategory(id: 'snacks', name: 'Snacks', emoji: 'snack'),
     MenuCategory(id: 'beverages', name: 'Beverages', emoji: 'beverage'),
+    MenuCategory(id: 'thali', name: 'Thali', emoji: 'thali'),
+    MenuCategory(id: 'chinese', name: 'Chinese', emoji: 'chinese'),
   ];
 
   static const List<MenuItem> items = [
@@ -162,25 +164,6 @@ class MockMenuData {
       emoji: '🍽️',
     ),
     MenuItem(
-      id: 'm002',
-      categoryId: 'meals',
-      name: 'Special Thali',
-      description: 'Paneer curry, dal, rice, 3 chapati, salad, and sweet',
-      price: 130,
-      isVeg: true,
-      isPopular: true,
-      emoji: '🍽️',
-    ),
-    MenuItem(
-      id: 'm003',
-      categoryId: 'meals',
-      name: 'Punjabi Thali',
-      description: 'Dal makhani, paneer, raita, rice, and 3 rotis',
-      price: 140,
-      isVeg: true,
-      emoji: '🍽️',
-    ),
-    MenuItem(
       id: 'm004',
       categoryId: 'meals',
       name: 'Dal Tadka',
@@ -209,24 +192,6 @@ class MockMenuData {
       emoji: '🥘',
     ),
     MenuItem(
-      id: 'm007',
-      categoryId: 'meals',
-      name: 'Paneer Masala',
-      description: 'Paneer cubes in rich spiced masala gravy',
-      price: 110,
-      isVeg: true,
-      emoji: '🥘',
-    ),
-    MenuItem(
-      id: 'm008',
-      categoryId: 'meals',
-      name: 'Paneer Bhurji',
-      description: 'Crumbled paneer cooked with onion, tomato, and spices',
-      price: 100,
-      isVeg: true,
-      emoji: '🍳',
-    ),
-    MenuItem(
       id: 'm009',
       categoryId: 'meals',
       name: 'Paneer Tikka Masala',
@@ -234,15 +199,6 @@ class MockMenuData {
       price: 130,
       isVeg: true,
       isPopular: true,
-      emoji: '🥘',
-    ),
-    MenuItem(
-      id: 'm010',
-      categoryId: 'meals',
-      name: 'Paneer Makhanwala',
-      description: 'Paneer in a rich buttery tomato-cream sauce',
-      price: 130,
-      isVeg: true,
       emoji: '🥘',
     ),
     MenuItem(
@@ -254,34 +210,6 @@ class MockMenuData {
       isVeg: true,
       isPopular: true,
       emoji: '🍛',
-    ),
-    MenuItem(
-      id: 'm012',
-      categoryId: 'meals',
-      name: 'Kolhapuri Biryani',
-      description: 'Spicy Kolhapuri-style mixed vegetable biryani',
-      price: 130,
-      isVeg: true,
-      emoji: '🍛',
-    ),
-    MenuItem(
-      id: 'm013',
-      categoryId: 'meals',
-      name: 'Veg Fried Rice',
-      description: 'Chinese-style stir-fried rice with mixed vegetables',
-      price: 90,
-      isVeg: true,
-      isPopular: true,
-      emoji: '🍚',
-    ),
-    MenuItem(
-      id: 'm014',
-      categoryId: 'meals',
-      name: 'Noodles',
-      description: 'Hakka-style stir-fried noodles with vegetables',
-      price: 90,
-      isVeg: true,
-      emoji: '🍜',
     ),
     MenuItem(
       id: 'm015',
@@ -312,32 +240,104 @@ class MockMenuData {
       isPopular: true,
       emoji: '🍲',
     ),
+
+    // ---- THALI ----
     MenuItem(
-      id: 'm018',
-      categoryId: 'meals',
-      name: 'Dahi Wada',
-      description: 'Lentil dumplings soaked in creamy yogurt with chutneys',
-      price: 55,
+      id: 't001',
+      categoryId: 'thali',
+      name: 'Veg Thali',
+      description: 'Dal, 2 sabji, rice, chapati, papad, and salad — a complete meal',
+      price: 100,
       isVeg: true,
-      emoji: '🥣',
+      isPopular: true,
+      emoji: '🍽️',
     ),
     MenuItem(
-      id: 'm019',
-      categoryId: 'meals',
-      name: 'Veg Kolhapuri',
-      description: 'Mixed vegetables in fiery Kolhapuri-style masala',
-      price: 110,
+      id: 't002',
+      categoryId: 'thali',
+      name: 'Special Thali',
+      description: 'Paneer curry, dal, rice, 3 chapati, salad, and sweet',
+      price: 130,
       isVeg: true,
+      isPopular: true,
+      emoji: '🍽️',
+    ),
+    MenuItem(
+      id: 't003',
+      categoryId: 'thali',
+      name: 'Punjabi Thali',
+      description: 'Dal makhani, paneer, raita, rice, and 3 rotis',
+      price: 140,
+      isVeg: true,
+      emoji: '🍽️',
+    ),
+    MenuItem(
+      id: 't004',
+      categoryId: 'thali',
+      name: 'South Indian Thali',
+      description: 'Rice, sambar, rasam, 2 sabji, papad, dessert',
+      price: 120,
+      isVeg: true,
+      emoji: '🍽️',
+    ),
+
+    // ---- CHINESE ----
+    MenuItem(
+      id: 'c001',
+      categoryId: 'chinese',
+      name: 'Veg Fried Rice',
+      description: 'Chinese-style stir-fried rice with mixed vegetables',
+      price: 90,
+      isVeg: true,
+      isPopular: true,
+      emoji: '🍚',
+    ),
+    MenuItem(
+      id: 'c002',
+      categoryId: 'chinese',
+      name: 'Hakka Noodles',
+      description: 'Stir-fried noodles tossed with vegetables and sauces',
+      price: 90,
+      isVeg: true,
+      isPopular: true,
+      emoji: '🍜',
+    ),
+    MenuItem(
+      id: 'c003',
+      categoryId: 'chinese',
+      name: 'Chilli Paneer',
+      description: 'Crispy paneer tossed in spicy Indo-Chinese chilli sauce',
+      price: 130,
+      isVeg: true,
+      isPopular: true,
       emoji: '🥘',
     ),
     MenuItem(
-      id: 'm020',
-      categoryId: 'meals',
-      name: 'Chapati Bhaji',
-      description: 'Soft chapati served with seasonal vegetable curry',
-      price: 50,
+      id: 'c004',
+      categoryId: 'chinese',
+      name: 'Manchurian',
+      description: 'Crispy veggie balls in a tangy Manchurian sauce',
+      price: 100,
       isVeg: true,
-      emoji: '🫓',
+      emoji: '🍲',
+    ),
+    MenuItem(
+      id: 'c005',
+      categoryId: 'chinese',
+      name: 'Spring Rolls',
+      description: 'Crispy golden rolls stuffed with veggies, served with dip',
+      price: 80,
+      isVeg: true,
+      emoji: '🥟',
+    ),
+    MenuItem(
+      id: 'c006',
+      categoryId: 'chinese',
+      name: 'Schezwan Fried Rice',
+      description: 'Spicy Schezwan-style fried rice with veggies',
+      price: 100,
+      isVeg: true,
+      emoji: '🍚',
     ),
 
     // ---- BEVERAGES ----
@@ -372,6 +372,7 @@ class MockMenuData {
   ];
 
   static List<MenuItem> getByCategory(String categoryId) {
+    if (categoryId == 'all') return items;
     if (categoryId == 'popular') {
       return items.where((i) => i.isPopular).toList();
     }
@@ -395,4 +396,7 @@ class MockMenuData {
       return null;
     }
   }
+
+  static List<MenuItem> get popular =>
+      items.where((i) => i.isPopular).take(8).toList();
 }

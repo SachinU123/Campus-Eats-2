@@ -23,8 +23,19 @@ class AuthRepository {
     }
   }
 
+  /// Email + password login (student side).
   Future<UserProfile?> login(String email, String password) async {
     final user = MockAuthData.login(email, password);
+    if (user != null) {
+      _currentUser = user;
+      await _persist(user);
+    }
+    return user;
+  }
+
+  /// Phone-based login for canteen staff (after OTP verified externally).
+  Future<UserProfile?> loginByPhone(String phone) async {
+    final user = MockAuthData.loginByPhone(phone);
     if (user != null) {
       _currentUser = user;
       await _persist(user);
@@ -78,6 +89,13 @@ class AuthNotifier extends Notifier<UserProfile?> {
 
   Future<bool> login(String email, String password) async {
     final user = await ref.read(authRepositoryProvider).login(email, password);
+    state = user;
+    return user != null;
+  }
+
+  /// Phone-based canteen login (after OTP verified in UI).
+  Future<bool> loginByPhone(String phone) async {
+    final user = await ref.read(authRepositoryProvider).loginByPhone(phone);
     state = user;
     return user != null;
   }

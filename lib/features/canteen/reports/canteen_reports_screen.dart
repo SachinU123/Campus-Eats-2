@@ -12,21 +12,21 @@ class CanteenReportsScreen extends ConsumerWidget {
     final orders = ref.watch(orderProvider);
     final theme = Theme.of(context);
 
-    // Daily summary
+    // Today's data
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final todayOrders = orders.where((o) {
       return DateFormat('yyyy-MM-dd').format(o.placedAt) == today;
     }).toList();
-    final todayRevenue = todayOrders.fold<double>(0, (s, o) => s + o.total);
+    final todayRevenue =
+        todayOrders.fold<double>(0, (s, o) => s + o.total);
 
-    // Monthly
+    // Monthly data
     final thisMonth = DateFormat('yyyy-MM').format(DateTime.now());
-    final monthOrders = orders.where((o) {
-      return DateFormat('yyyy-MM').format(o.placedAt) == thisMonth;
-    }).toList();
-    final monthRevenue = monthOrders.fold<double>(0, (s, o) => s + o.total);
+    final monthRevenue = orders
+        .where((o) => DateFormat('yyyy-MM').format(o.placedAt) == thisMonth)
+        .fold<double>(0, (s, o) => s + o.total);
 
-    // Top items count
+    // Top ordered items
     final itemCounts = <String, int>{};
     for (final o in orders) {
       for (final item in o.items) {
@@ -40,21 +40,23 @@ class CanteenReportsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
       body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Daily summary
+            // ---- Today's Orders ----
             Text(
-              "Today's Summary",
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              "Today",
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
                   child: _KpiCard(
-                    icon: Icons.receipt_rounded,
+                    icon: Icons.receipt_long_rounded,
                     label: "Today's Orders",
                     value: '${todayOrders.length}',
                     color: theme.colorScheme.primary,
@@ -73,9 +75,12 @@ class CanteenReportsScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: 24),
+
+            // ---- This Month's Sales ----
             Text(
-              'Monthly Sales',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              'This Month',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             AppCard(
@@ -84,10 +89,12 @@ class CanteenReportsScreen extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+                      color:
+                          theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.bar_chart_rounded, color: theme.colorScheme.primary, size: 28),
+                    child: Icon(Icons.bar_chart_rounded,
+                        color: theme.colorScheme.primary, size: 28),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -108,7 +115,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                           ),
                         ),
                         Text(
-                          '${monthOrders.length} orders this month',
+                          'Total sales this month',
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
@@ -119,9 +126,12 @@ class CanteenReportsScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: 24),
+
+            // ---- Top Ordered Items ----
             Text(
               'Top Ordered Items',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
 
@@ -132,7 +142,8 @@ class CanteenReportsScreen extends ConsumerWidget {
                     padding: const EdgeInsets.all(16),
                     child: Text(
                       'No data yet',
-                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant),
                     ),
                   ),
                 ),
@@ -143,21 +154,25 @@ class CanteenReportsScreen extends ConsumerWidget {
                   children: top5.asMap().entries.map((e) {
                     final rank = e.key + 1;
                     final item = e.value;
+                    final rankColor = rank == 1
+                        ? const Color(0xFFFFC107)
+                        : rank == 2
+                            ? const Color(0xFFBDBDBD)
+                            : rank == 3
+                                ? const Color(0xFFCD7F32)
+                                : theme.colorScheme.surfaceContainerHighest;
+                    final rankTextColor =
+                        rank <= 3 ? Colors.white : theme.colorScheme.onSurfaceVariant;
+
                     return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 9),
                       child: Row(
                         children: [
                           Container(
                             width: 28,
                             height: 28,
                             decoration: BoxDecoration(
-                              color: rank == 1
-                                  ? const Color(0xFFFFC107)
-                                  : rank == 2
-                                      ? const Color(0xFFBDBDBD)
-                                      : rank == 3
-                                          ? const Color(0xFFCD7F32)
-                                          : theme.colorScheme.surfaceContainerHighest,
+                              color: rankColor,
                               shape: BoxShape.circle,
                             ),
                             child: Center(
@@ -166,7 +181,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
-                                  color: rank <= 3 ? Colors.white : theme.colorScheme.onSurfaceVariant,
+                                  color: rankTextColor,
                                 ),
                               ),
                             ),
@@ -179,9 +194,11 @@ class CanteenReportsScreen extends ConsumerWidget {
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+                              color: theme.colorScheme.primaryContainer
+                                  .withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -198,6 +215,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                   }).toList(),
                 ),
               ),
+
             const SizedBox(height: 32),
           ],
         ),
@@ -238,7 +256,8 @@ class _KpiCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             value,
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color),
+            style: TextStyle(
+                fontSize: 22, fontWeight: FontWeight.w800, color: color),
           ),
           const SizedBox(height: 2),
           Text(label, style: theme.textTheme.bodySmall),

@@ -4,9 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/features/auth/login_screen.dart';
 import 'package:campus_eats_ag/features/auth/register_screen.dart';
+import 'package:campus_eats_ag/features/auth/canteen_phone_screen.dart';
+import 'package:campus_eats_ag/features/auth/canteen_otp_screen.dart';
 import 'package:campus_eats_ag/features/student/student_shell.dart';
 import 'package:campus_eats_ag/features/student/home/student_home_screen.dart';
 import 'package:campus_eats_ag/features/student/menu/menu_screen.dart';
+import 'package:campus_eats_ag/features/student/menu/menu_item_detail_screen.dart';
 import 'package:campus_eats_ag/features/student/cart/cart_screen.dart';
 import 'package:campus_eats_ag/features/student/orders/student_orders_screen.dart';
 import 'package:campus_eats_ag/features/student/orders/order_detail_screen.dart';
@@ -17,30 +20,54 @@ import 'package:campus_eats_ag/features/canteen/canteen_shell.dart';
 import 'package:campus_eats_ag/features/canteen/verify/canteen_verify_screen.dart';
 import 'package:campus_eats_ag/features/canteen/orders/canteen_orders_screen.dart';
 import 'package:campus_eats_ag/features/canteen/reports/canteen_reports_screen.dart';
+import 'package:campus_eats_ag/features/canteen/profile/canteen_profile_screen.dart';
+import 'package:campus_eats_ag/models/menu_item.dart';
 import 'package:campus_eats_ag/models/order.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
-final _studentShellKey = GlobalKey<NavigatorState>(debugLabel: 'studentShell');
-final _canteenShellKey = GlobalKey<NavigatorState>(debugLabel: 'canteenShell');
+final _studentShellKey =
+    GlobalKey<NavigatorState>(debugLabel: 'studentShell');
+final _canteenShellKey =
+    GlobalKey<NavigatorState>(debugLabel: 'canteenShell');
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authProvider);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: auth == null ? '/login' : (auth.role == 'canteen' ? '/canteen' : '/student'),
+    initialLocation: _resolveInitial(auth?.role),
     redirect: (context, state) {
       final user = ref.read(authProvider);
-      final onAuth = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
+      final loc = state.matchedLocation;
 
-      if (user == null && !onAuth) return '/login';
-      if (user != null && onAuth) {
+      // Paths that do not require authentication
+      final isPublicPath = loc == '/login' ||
+          loc == '/register' ||
+          loc == '/canteen-login' ||
+          loc.startsWith('/canteen-otp');
+
+      // Not logged in → send to login (unless already on a public path)
+      if (user == null && !isPublicPath) return '/login';
+
+      // Logged in → don't let them see auth screens
+      if (user != null && isPublicPath) {
         return user.role == 'canteen' ? '/canteen' : '/student';
       }
+
+      // Logged-in canteen trying to access student area → redirect
+      if (user != null && user.role == 'canteen' && loc.startsWith('/student')) {
+        return '/canteen';
+      }
+
+      // Logged-in student trying to access canteen area → redirect
+      if (user != null && user.role == 'student' && loc.startsWith('/canteen')) {
+        return '/student';
+      }
+
       return null;
     },
     routes: [
+      // ── Auth routes (public) ─────────────────────────────────────────────
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -50,7 +77,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const RegisterScreen(),
       ),
 
-      // Student shell
+      // Canteen phone entry (step 1 of canteen auth)
+      GoRoute(
+        path: '/canteen-login',
+        builder: (context, state) => const CanteenPhoneScreen(),
+      ),
+
+      // Canteen OTP verification (step 2 of canteen auth)
+      GoRoute(
+        path: '/canteen-otp',
+        builder: (context, state) {
+          final phone = state.extra as String? ?? '';
+          return CanteenOtpScreen(phoneNumber: phone);
+        },
+      ),
+
+      // ── Student shell ────────────────────────────────────────────────────
       ShellRoute(
         navigatorKey: _studentShellKey,
         builder: (context, state, child) => StudentShell(child: child),
@@ -61,7 +103,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/student/menu',
-            builder: (context, state) => const MenuScreen(),
+            builder: (context, state) {
+              final category = state.uri.queryParameters['category'];
+              return MenuScreen(initialCategory: category);
+            },
+          ),
+          GoRoute(
+            path: '/student/menu/item/:itemId',
+            builder: (context, state) {
+              final item = state.extra as MenuItem?;
+              final itemId = state.pathParameters['itemId'] ?? '';
+              return MenuItemDetailScreen(item: item, itemId: itemId);
+            },
           ),
           GoRoute(
             path: '/student/cart',
@@ -100,7 +153,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // Canteen shell
+      // ── Canteen shell ────────────────────────────────────────────────────
       ShellRoute(
         navigatorKey: _canteenShellKey,
         builder: (context, state, child) => CanteenShell(child: child),
@@ -117,8 +170,20 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/canteen/reports',
             builder: (context, state) => const CanteenReportsScreen(),
           ),
+          GoRoute(
+            path: '/canteen/profile',
+            builder: (context, state) => const CanteenProfileScreen(),
+          ),
         ],
       ),
     ],
   );
 });
+
+String _resolveInitial(String? role) {
+  return switch (role) {
+    'canteen' => '/canteen',
+    'student' => '/student',
+    _ => '/login',
+  };
+}

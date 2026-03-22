@@ -10,7 +10,8 @@ import 'package:campus_eats_ag/models/menu_category.dart';
 import 'package:campus_eats_ag/models/menu_item.dart';
 
 class MenuScreen extends ConsumerStatefulWidget {
-  const MenuScreen({super.key});
+  final String? initialCategory;
+  const MenuScreen({super.key, this.initialCategory});
 
   @override
   ConsumerState<MenuScreen> createState() => _MenuScreenState();
@@ -18,8 +19,14 @@ class MenuScreen extends ConsumerStatefulWidget {
 
 class _MenuScreenState extends ConsumerState<MenuScreen> {
   final _searchCtrl = TextEditingController();
-  String _selectedCat = 'popular';
+  late String _selectedCat;
   String _searchQ = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCat = widget.initialCategory ?? 'all';
+  }
 
   @override
   void dispose() {
@@ -66,7 +73,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         },
                       )
                     : null,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               ),
             ),
           ),
@@ -78,6 +86,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
+                physics: const BouncingScrollPhysics(),
                 itemCount: MockMenuData.categories.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
                 itemBuilder: (ctx, i) {
@@ -108,6 +117,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    physics: const BouncingScrollPhysics(),
                     itemCount: items.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (ctx, i) => _MenuItemCard(item: items[i]),
@@ -132,12 +142,22 @@ class _CategoryChip extends StatelessWidget {
 
   String get _emoji {
     switch (category.id) {
-      case 'popular': return '⭐';
-      case 'breakfast': return '🌅';
-      case 'meals': return '🍽️';
-      case 'snacks': return '🍟';
-      case 'beverages': return '☕';
-      default: return '🍴';
+      case 'all':
+        return '🍴';
+      case 'breakfast':
+        return '🌅';
+      case 'meals':
+        return '🍽️';
+      case 'snacks':
+        return '🍟';
+      case 'beverages':
+        return '☕';
+      case 'thali':
+        return '🥗';
+      case 'chinese':
+        return '🍜';
+      default:
+        return '🍴';
     }
   }
 
@@ -147,10 +167,11 @@ class _CategoryChip extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? theme.colorScheme.primary : theme.colorScheme.surface,
+          color:
+              selected ? theme.colorScheme.primary : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: selected
@@ -177,7 +198,9 @@ class _CategoryChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: selected ? Colors.white : theme.colorScheme.onSurface,
+                color: selected
+                    ? Colors.white
+                    : theme.colorScheme.onSurface,
               ),
             ),
           ],
@@ -199,95 +222,110 @@ class _MenuItemCard extends ConsumerWidget {
     ref.watch(cartProvider); // watch for quantity rebuild
     final cartQty = cartNotifier.getQuantity(item.id);
 
-    return AppCard(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          // Emoji thumbnail
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Stack(
-              children: [
-                Center(
-                  child: Text(item.emoji, style: const TextStyle(fontSize: 38)),
-                ),
-                if (item.isPopular)
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.warning.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'Hot',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () =>
+            context.push('/student/menu/item/${item.id}', extra: item),
+        borderRadius: BorderRadius.circular(16),
+        child: AppCard(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // Emoji thumbnail
+              Hero(
+                tag: 'item_${item.id}',
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer
+                        .withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Text(item.emoji,
+                            style: const TextStyle(fontSize: 38)),
+                      ),
+                      if (item.isPopular)
+                        Positioned(
+                          top: 4,
+                          left: 4,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Hot',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
 
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    VegBadge(isVeg: item.isVeg),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        item.name,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    Row(
+                      children: [
+                        VegBadge(isVeg: item.isVeg),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 15),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.description,
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
+                    const SizedBox(height: 4),
                     Text(
-                      'Rs. ${item.price.toInt()}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: theme.colorScheme.primary,
-                      ),
+                      item.description,
+                      style: theme.textTheme.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const Spacer(),
-                    if (cartQty > 0)
-                      _QuantityStepper(item: item, qty: cartQty)
-                    else
-                      _AddToCartBtn(item: item),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          'Rs. ${item.price.toInt()}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (cartQty > 0)
+                          _QuantityStepper(item: item, qty: cartQty)
+                        else
+                          _AddToCartBtn(item: item),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -316,6 +354,7 @@ class _AddToCartBtn extends ConsumerWidget {
             SnackBar(
               content: Text('${item.name} added to cart'),
               duration: const Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
             ),
           );
         }

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
+import 'package:campus_eats_ag/features/student/orders/order_slip_screen.dart';
 import 'package:campus_eats_ag/models/order.dart';
 
 class StudentOrdersScreen extends ConsumerWidget {
@@ -63,6 +65,7 @@ class _OrderList extends StatelessWidget {
 
     return ListView.separated(
       padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
       itemCount: orders.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (ctx, i) => _StudentOrderCard(order: orders[i]),
@@ -70,24 +73,32 @@ class _OrderList extends StatelessWidget {
   }
 }
 
-class _StudentOrderCard extends StatelessWidget {
+class _StudentOrderCard extends StatefulWidget {
   final Order order;
   const _StudentOrderCard({required this.order});
 
   @override
+  State<_StudentOrderCard> createState() => _StudentOrderCardState();
+}
+
+class _StudentOrderCardState extends State<_StudentOrderCard> {
+  bool _showQr = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final order = widget.order;
 
     return AppCard(
-      onTap: () => context.push('/student/orders/${order.id}', extra: order),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
+          // --- Token row (clean, no status chip here) ---
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -95,73 +106,83 @@ class _StudentOrderCard extends StatelessWidget {
                 child: Text(
                   '#${order.token}',
                   style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
                     color: theme.colorScheme.primary,
-                    letterSpacing: 1,
+                    letterSpacing: 1.5,
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  order.id,
-                  style: theme.textTheme.bodySmall?.copyWith(letterSpacing: 0.5),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (order.isScheduled && order.scheduledFor != null)
+                      Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded,
+                              size: 13, color: Color(0xFF00838F)),
+                          const SizedBox(width: 3),
+                          Text(
+                            'Sched. ${AppUtils.formatTimeShort(order.scheduledFor!)}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF00838F),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        AppUtils.formatDateTime(order.placedAt),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                  ],
                 ),
               ),
-              StatusChip(status: order.status),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
 
-          if (order.isScheduled && order.scheduledFor != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF00838F)),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Scheduled for ${AppUtils.formatTimeShort(order.scheduledFor!)}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF00838F),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // Items list
+          // --- Items summary ---
           ...order.items.map((item) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(
                   children: [
-                    Text(item.emoji, style: const TextStyle(fontSize: 14)),
+                    Text(item.emoji,
+                        style: const TextStyle(fontSize: 13)),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '${item.name} x${item.quantity}',
+                        item.name,
                         style: theme.textTheme.bodyMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Text(
-                      'Rs. ${item.lineTotal.toInt()}',
+                      'x${item.quantity}',
                       style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Rs. ${item.lineTotal.toInt()}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 12),
                     ),
                   ],
                 ),
               )),
 
-          const Divider(height: 16),
+          const Divider(height: 18),
 
+          // --- Total ---
           Row(
             children: [
-              Text(
-                AppUtils.formatDateTime(order.placedAt),
-                style: theme.textTheme.bodySmall,
-              ),
+              const Text('Total',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
@@ -174,27 +195,83 @@ class _StudentOrderCard extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.payment_rounded,
-                size: 14,
-                color: theme.colorScheme.onSurfaceVariant,
+          const SizedBox(height: 12),
+
+          // --- QR toggle section ---
+          if (_showQr) ...[
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: QrImageView(
+                  data: order.qrContent,
+                  version: QrVersions.auto,
+                  size: 140,
+                  backgroundColor: Colors.white,
+                ),
               ),
-              const SizedBox(width: 4),
-              Text(order.paymentMethod, style: theme.textTheme.bodySmall),
-              const Spacer(),
-              Text(
-                'View Details',
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: Text(
+                'Show this QR at counter',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: theme.colorScheme.primary,
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right_rounded, size: 16, color: theme.colorScheme.primary),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // --- Bottom actions: only QR + View Slip ---
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => setState(() => _showQr = !_showQr),
+                  icon: Icon(
+                    _showQr ? Icons.qr_code_2_rounded : Icons.qr_code_rounded,
+                    size: 16,
+                  ),
+                  label: Text(_showQr ? 'Hide QR' : 'Show QR'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => OrderSlipScreen(order: order),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.receipt_rounded, size: 16),
+                  label: const Text('View Slip'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ],

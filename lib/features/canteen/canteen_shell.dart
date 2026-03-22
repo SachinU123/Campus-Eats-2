@@ -12,6 +12,7 @@ class CanteenShell extends ConsumerWidget {
     (path: '/canteen', icon: Icons.qr_code_scanner_rounded, label: 'Verify'),
     (path: '/canteen/orders', icon: Icons.list_alt_rounded, label: 'Orders'),
     (path: '/canteen/reports', icon: Icons.bar_chart_rounded, label: 'Reports'),
+    (path: '/canteen/profile', icon: Icons.person_outline_rounded, label: 'Profile'),
   ];
 
   @override
@@ -20,13 +21,15 @@ class CanteenShell extends ConsumerWidget {
     final connectivity = ref.watch(connectivityProvider);
     final isOffline = connectivity == ConnectivityStatus.offline;
 
+    // Determine selected tab index
     int currentIndex = 0;
-    for (int i = 0; i < _tabs.length; i++) {
-      if (location.startsWith(_tabs[i].path) && _tabs[i].path != '/canteen' ||
-          location == _tabs[i].path) {
+    for (int i = _tabs.length - 1; i >= 0; i--) {
+      if (location.startsWith(_tabs[i].path)) {
         currentIndex = i;
+        break;
       }
     }
+    // Exact match for root canteen path
     if (location == '/canteen') currentIndex = 0;
 
     return Scaffold(
