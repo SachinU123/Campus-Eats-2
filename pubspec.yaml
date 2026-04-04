@@ -49,6 +49,7 @@ dependencies:
   shimmer: ^3.0.0
   flutter_animate: ^4.5.2
   connectivity_plus: ^7.0.0
+  http: ^1.2.2
   collection: ^1.19.1
 
 dev_dependencies:

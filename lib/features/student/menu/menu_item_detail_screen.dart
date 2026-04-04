@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
-import 'package:campus_eats_ag/data/mock/mock_menu_data.dart';
 import 'package:campus_eats_ag/data/repositories/cart_repository.dart';
 import 'package:campus_eats_ag/models/cart_item.dart';
 import 'package:campus_eats_ag/models/menu_item.dart';
@@ -19,7 +18,7 @@ class MenuItemDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final resolvedItem = item ?? MockMenuData.findById(itemId);
+    final resolvedItem = item;
 
     if (resolvedItem == null) {
       return Scaffold(

@@ -3,27 +3,54 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
-import 'package:campus_eats_ag/data/mock/mock_menu_data.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/cart_repository.dart';
+import 'package:campus_eats_ag/data/repositories/menu_repository.dart';
 import 'package:campus_eats_ag/models/cart_item.dart';
+import 'package:campus_eats_ag/models/menu_category.dart';
 import 'package:campus_eats_ag/models/menu_item.dart';
 
-class StudentHomeScreen extends ConsumerWidget {
+class StudentHomeScreen extends ConsumerStatefulWidget {
   const StudentHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<StudentHomeScreen> createState() => _StudentHomeScreenState();
+}
+
+class _StudentHomeScreenState extends ConsumerState<StudentHomeScreen> {
+  List<MenuCategory> _categories = [];
+  List<MenuItem> _popular = [];
+  bool _loaded = false; // ignore: unused_field
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final repo = ref.read(menuRepositoryProvider);
+    final cats = await repo.getCategories();
+    final popular = await repo.getItems(categoryId: 'popular');
+    if (mounted) {
+      setState(() {
+        _categories = cats.where((c) => c.id != 'all').toList();
+        _popular = popular;
+        _loaded = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(authProvider);
     final firstName = user?.name.split(' ').first ?? 'Student';
     final hour = DateTime.now().hour;
     final greeting =
         hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';
 
-    final popular = MockMenuData.popular;
-
-    // Home display categories (skip 'all', show named ones)
-    final homeCategories = MockMenuData.categories.skip(1).toList();
+    final popular = _popular;
+    final homeCategories = _categories;
 
     return Scaffold(
       body: CustomScrollView(
@@ -140,7 +167,7 @@ class StudentHomeScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 physics: const BouncingScrollPhysics(),
                 itemCount: homeCategories.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                separatorBuilder: (context, index) => const SizedBox(width: 12),
                 itemBuilder: (ctx, i) {
                   final cat = homeCategories[i];
                   return _CategoryCard(
@@ -172,7 +199,7 @@ class StudentHomeScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 physics: const BouncingScrollPhysics(),
                 itemCount: popular.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                separatorBuilder: (context, index) => const SizedBox(width: 12),
                 itemBuilder: (ctx, i) => _FeaturedCard(item: popular[i]),
               ),
             ),

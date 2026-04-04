@@ -1,0 +1,239 @@
+// CampusEats — Production PostgreSQL Schema
+// NestJS + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────────────
+// USERS
+// ──────────────────────────────────────────────
+
+model Student {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  phoneNumber  String
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders   Order[]
+  sessions RefreshSession[]
+
+  @@map("students")
+}
+
+model CanteenUser {
+  id          String   @id @default(uuid())
+  name        String
+  phoneNumber String   @unique
+  role        String   @default("canteen") // canteen_admin, canteen_staff
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sessions RefreshSession[]
+
+  @@map("canteen_users")
+}
+
+// ──────────────────────────────────────────────
+// AUTH / OTP / SESSIONS
+// ──────────────────────────────────────────────
+
+model OtpCode {
+  id          String    @id @default(uuid())
+  phoneNumber String
+  code        String
+  purpose     String    @default("canteen_login") // canteen_login
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([phoneNumber, purpose])
+  @@map("otp_codes")
+}
+
+model RefreshSession {
+  id               String    @id @default(uuid())
+  userType         String    // student | canteen
+  userId           String
+  refreshTokenHash String
+  deviceId         String?
+  deviceName       String?
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  // Polymorphic relation — we use optional FKs
+  student     Student?     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId   String?
+  canteenUser CanteenUser? @relation(fields: [canteenUserId], references: [id], onDelete: Cascade)
+  canteenUserId String?
+
+  @@index([userId, userType])
+  @@index([refreshTokenHash])
+  @@map("refresh_sessions")
+}
+
+// ──────────────────────────────────────────────
+// MENU
+// ──────────────────────────────────────────────
+
+model MenuCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  emoji     String   @default("")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  categoryId  String
+  name        String
+  description String   @default("")
+  imageUrl    String   @default("")
+  emoji       String   @default("")
+  price       Float
+  isVeg       Boolean  @default(true)
+  isPopular   Boolean  @default(false)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category   MenuCategory @relation(fields: [categoryId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+  @@map("menu_items")
+}
+
+// ──────────────────────────────────────────────
+// ORDERS
+// ──────────────────────────────────────────────
+
+model Order {
+  id            String    @id @default(uuid())
+  studentId     String
+  tokenNumber   String    @unique
+  status        String    @default("created") // created, payment_pending, paid, completed, cancelled
+  subtotal      Float
+  total         Float
+  paymentStatus String    @default("pending") // pending, paid, failed, refunded
+  paymentMethod String?   // razorpay, upi, etc.
+  notes         String?
+  orderedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  student            Student             @relation(fields: [studentId], references: [id])
+  items              OrderItem[]
+  paymentTransaction PaymentTransaction?
+  receipt            Receipt?
+
+  @@index([studentId])
+  @@index([status])
+  @@index([orderedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                String   @id @default(uuid())
+  orderId           String
+  menuItemId        String
+  itemNameSnapshot  String
+  unitPriceSnapshot Float
+  quantity          Int
+  lineTotal         Float
+  emoji             String   @default("")
+  isVeg             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ──────────────────────────────────────────────
+// PAYMENTS
+// ──────────────────────────────────────────────
+
+model PaymentTransaction {
+  id                 String    @id @default(uuid())
+  orderId            String    @unique
+  gateway            String    @default("razorpay")
+  razorpayOrderId    String?   @unique
+  razorpayPaymentId  String?
+  razorpaySignature  String?
+  amount             Float
+  currency           String    @default("INR")
+  status             String    @default("created") // created, authorized, captured, failed, refunded
+  paidAt             DateTime?
+  rawPayloadJson     Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([razorpayOrderId])
+  @@map("payment_transactions")
+}
+
+// ──────────────────────────────────────────────
+// RECEIPTS / SLIPS
+// ──────────────────────────────────────────────
+
+model Receipt {
+  id                  String   @id @default(uuid())
+  orderId             String   @unique
+  printablePayloadJson Json
+  generatedAt         DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("receipts")
+}
+
+// ──────────────────────────────────────────────
+// AUDIT / CONFIG (optional)
+// ──────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorType   String   // student | canteen | system
+  actorId     String?
+  action      String
+  metadataJson Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorType, actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AppConfig {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+
+  @@map("app_config")
+}

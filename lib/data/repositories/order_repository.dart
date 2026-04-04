@@ -1,15 +1,15 @@
-import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:campus_eats_ag/core/utils/app_utils.dart';
-import 'package:campus_eats_ag/data/mock/mock_order_data.dart';
+import 'package:campus_eats_ag/data/api/api_client.dart';
+import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/models/order.dart';
 import 'package:campus_eats_ag/models/order_item.dart';
 
 class OrderRepository {
-  static const String _key = 'orders_data';
+  final ApiClient _api;
   final List<Order> _orders = [];
   bool _loaded = false;
+
+  OrderRepository(this._api);
 
   List<Order> get allOrders => List.unmodifiable(_orders);
 
@@ -17,46 +17,83 @@ class OrderRepository {
     if (_loaded) return;
     _loaded = true;
 
-    _orders.addAll(MockOrderData.seedOrders);
+    final result = await _api.get('/orders/my');
+    if (result.isSuccess && result.data is List) {
+      _orders.clear();
+      for (final item in result.data as List) {
+        try {
+          _orders.add(_parseOrder(item as Map<String, dynamic>));
+        } catch (_) {}
+      }
+      _orders.sort((a, b) => b.placedAt.compareTo(a.placedAt));
+    }
+  }
 
-    final prefs = await SharedPreferences.getInstance();
-    final json = prefs.getString(_key);
-    if (json != null) {
-      try {
-        final list = jsonDecode(json) as List;
-        final saved = list
-            .map((e) => Order.fromMap(Map<String, dynamic>.from(e as Map)))
-            .toList();
-        for (final order in saved) {
-          if (!_orders.any((o) => o.id == order.id)) {
-            _orders.insert(0, order);
-          }
-        }
-      } catch (_) {}
+  Future<void> reload() async {
+    _loaded = false;
+    _orders.clear();
+    await load();
+  }
+
+  Future<Order> createOrder({
+    required List<Map<String, dynamic>> items,
+    String? notes,
+  }) async {
+    final result = await _api.post('/orders', body: {
+      'items': items,
+      // ignore: use_null_aware_elements
+      if (notes != null) 'notes': notes,
+    });
+
+    if (!result.isSuccess) {
+      throw Exception(result.message);
     }
 
-    _orders.sort((a, b) => b.placedAt.compareTo(a.placedAt));
-  }
-
-  Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _key,
-      jsonEncode(_orders.map((e) => e.toMap()).toList()),
-    );
-  }
-
-  Future<Order> addOrder(Order order) async {
+    final order = _parseOrder(result.data as Map<String, dynamic>);
     _orders.insert(0, order);
-    await _save();
     return order;
   }
 
+  Future<Order?> getOrderById(String id) async {
+    // Check local cache first
+    final cached = _orders.where((o) => o.id == id).firstOrNull;
+    if (cached != null) return cached;
+
+    final result = await _api.get('/orders/$id');
+    if (!result.isSuccess) return null;
+    return _parseOrder(result.data as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>?> getSlip(String orderId) async {
+    final result = await _api.get('/orders/$orderId/slip');
+    if (!result.isSuccess) return null;
+    return result.data as Map<String, dynamic>;
+  }
+
+  // ─── Canteen Methods ───────────────────────────────────────
+
+  Future<List<Order>> getCanteenOrders({String? status}) async {
+    final path = status != null
+        ? '/canteen/orders?status=$status'
+        : '/canteen/orders';
+    final result = await _api.get(path);
+    if (!result.isSuccess || result.data is! List) return [];
+
+    return (result.data as List)
+        .map((e) => _parseOrder(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<void> updateStatus(String orderId, String newStatus) async {
-    final index = _orders.indexWhere((o) => o.id == orderId);
-    if (index >= 0) {
-      _orders[index] = _orders[index].copyWith(status: newStatus);
-      await _save();
+    final result = await _api.patch('/canteen/orders/$orderId/complete', body: {
+      'status': newStatus,
+    });
+
+    if (result.isSuccess) {
+      final index = _orders.indexWhere((o) => o.id == orderId);
+      if (index >= 0) {
+        _orders[index] = _orders[index].copyWith(status: newStatus);
+      }
     }
   }
 
@@ -93,36 +130,67 @@ class OrderRepository {
     }).toList();
   }
 
-  Order createNewOrder({
-    required String studentId,
-    required String studentName,
-    required String studentDept,
-    required List<OrderItem> items,
-    required double total,
-    required String paymentMethod,
-    DateTime? scheduledFor,
-  }) {
-    final orderId = AppUtils.generateOrderId();
-    final token = AppUtils.extractTokenFromOrderId(orderId);
+  // ─── Parse Backend Response to Order Model ─────────────────
+
+  Order _parseOrder(Map<String, dynamic> data) {
+    final token = data['tokenNumber'] as String? ?? '';
+    final id = data['id'] as String;
+    final studentData = data['student'] as Map<String, dynamic>?;
+
     return Order(
-      id: orderId,
+      id: id,
       token: token,
-      studentId: studentId,
-      studentName: studentName,
-      studentDept: studentDept,
-      items: items,
-      total: total,
-      paymentMethod: paymentMethod,
-      status: scheduledFor != null ? 'Scheduled' : 'Preparing',
-      isScheduled: scheduledFor != null,
-      scheduledFor: scheduledFor,
-      placedAt: DateTime.now(),
-      qrContent: AppUtils.buildQrContent(orderId, token),
+      studentId: data['studentId'] as String? ?? '',
+      studentName: studentData?['name'] as String? ?? '',
+      studentDept: '',
+      items: _parseItems(data['items'] as List? ?? []),
+      total: (data['total'] as num?)?.toDouble() ?? 0,
+      paymentMethod: data['paymentMethod'] as String? ?? 'razorpay',
+      status: _mapStatus(data['status'] as String? ?? 'created'),
+      placedAt: DateTime.tryParse(data['orderedAt'] as String? ?? '') ??
+          DateTime.now(),
+      qrContent: 'ORDER_CE-${token}_TOKEN_$token',
     );
+  }
+
+  List<OrderItem> _parseItems(List items) {
+    return items.map((e) {
+      final m = e as Map<String, dynamic>;
+      return OrderItem(
+        menuItemId: m['menuItemId'] as String? ?? '',
+        name: m['itemNameSnapshot'] as String? ?? m['name'] as String? ?? '',
+        price: (m['unitPriceSnapshot'] as num? ?? m['price'] as num? ?? 0)
+            .toDouble(),
+        quantity: m['quantity'] as int? ?? 1,
+        isVeg: m['isVeg'] as bool? ?? true,
+        emoji: m['emoji'] as String? ?? '',
+      );
+    }).toList();
+  }
+
+  /// Map backend status to frontend display status.
+  String _mapStatus(String backendStatus) {
+    switch (backendStatus) {
+      case 'created':
+      case 'payment_pending':
+        return 'Preparing';
+      case 'paid':
+        return 'Verified';
+      case 'completed':
+        return 'Collected';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return backendStatus;
+    }
   }
 }
 
-final orderRepositoryProvider = Provider<OrderRepository>((ref) => OrderRepository());
+// ─── Providers ─────────────────────────────────────────────────
+
+final orderRepositoryProvider = Provider<OrderRepository>((ref) {
+  return OrderRepository(ref.read(apiClientProvider));
+});
 
 class OrderNotifier extends Notifier<List<Order>> {
   late OrderRepository _repo;
@@ -138,6 +206,11 @@ class OrderNotifier extends Notifier<List<Order>> {
     state = List.from(_repo.allOrders);
   }
 
+  Future<void> reload() async {
+    await _repo.reload();
+    state = List.from(_repo.allOrders);
+  }
+
   Future<Order> placeOrder({
     required String studentId,
     required String studentName,
@@ -147,16 +220,15 @@ class OrderNotifier extends Notifier<List<Order>> {
     required String paymentMethod,
     DateTime? scheduledFor,
   }) async {
-    final order = _repo.createNewOrder(
-      studentId: studentId,
-      studentName: studentName,
-      studentDept: studentDept,
-      items: items,
-      total: total,
-      paymentMethod: paymentMethod,
-      scheduledFor: scheduledFor,
-    );
-    await _repo.addOrder(order);
+    // Create order via API (total calculated server-side)
+    final orderItems = items
+        .map((i) => {
+              'menuItemId': i.menuItemId,
+              'quantity': i.quantity,
+            })
+        .toList();
+
+    final order = await _repo.createOrder(items: orderItems);
     state = List.from(_repo.allOrders);
     return order;
   }

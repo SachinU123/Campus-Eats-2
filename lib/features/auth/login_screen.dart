@@ -221,42 +221,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 isLoading: _loading,
               ),
 
-              const SizedBox(height: 16),
-              // Demo credentials hint (students only)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer
-                      .withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info_outline_rounded,
-                            size: 16, color: theme.colorScheme.primary),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Demo Credentials',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _credRow('Student', 'priya@vppcoeva.edu.in', 'student123'),
-                  ],
-                ),
-              ),
+
 
               const SizedBox(height: 24),
               Row(
@@ -327,13 +292,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _credRow(String role, String email, String pass) {
-    return Text(
-      '$role: $email  /  $pass',
-      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
     );
   }
 }

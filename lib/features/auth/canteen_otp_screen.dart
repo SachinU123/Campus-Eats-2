@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
-import 'package:campus_eats_ag/data/mock/mock_auth_data.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 
 /// Canteen OTP verification screen.
@@ -49,30 +48,25 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
       _error = null;
     });
 
-    // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-
-    // Validate OTP against mock data
-    final valid = MockAuthData.validateCanteenOtp(widget.phoneNumber, _otp);
-
-    if (valid) {
-      // Login the canteen user
+    try {
+      // Verify OTP against real backend
       final success = await ref
           .read(authProvider.notifier)
-          .loginByPhone(widget.phoneNumber);
+          .verifyCanteenOtp(phone: widget.phoneNumber, otp: _otp);
+
       if (!mounted) return;
       setState(() => _loading = false);
+
       if (success) {
         context.go('/canteen');
       } else {
-        setState(
-            () => _error = 'Phone number not linked to a canteen account.');
+        setState(() => _error = 'Invalid OTP. Please try again.');
       }
-    } else {
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Invalid OTP. Please try again.';
+        _error = e.toString().replaceAll('Exception: ', '');
       });
     }
   }
@@ -256,14 +250,6 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                 label: const Text('Clear'),
               ),
 
-              const SizedBox(height: 32),
-              Text(
-                'Demo OTP: 1 2 3 4',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
               const SizedBox(height: 32),
             ],
           ),

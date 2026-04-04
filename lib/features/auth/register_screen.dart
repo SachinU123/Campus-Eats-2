@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 
@@ -19,25 +20,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _phoneCtrl = TextEditingController();
   bool _obscure = true;
   bool _loading = false;
-  String _selectedRole = 'student';
-  String _selectedDept = 'Computer Engineering';
-  String _selectedYear = 'First Year';
-
-  final _departments = [
-    'Computer Engineering',
-    'Mechanical Engineering',
-    'Electronics Engineering',
-    'Civil Engineering',
-    'Information Technology',
-    'Visual Arts',
-  ];
-
-  final _years = [
-    'First Year',
-    'Second Year',
-    'Third Year',
-    'Final Year',
-  ];
+  String? _error;
 
   @override
   void dispose() {
@@ -50,25 +33,28 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
-    await ref.read(authProvider.notifier).register(
-          name: _nameCtrl.text.trim(),
-          email: _emailCtrl.text.trim(),
-          password: _passCtrl.text.trim(),
-          department: _selectedDept,
-          year: _selectedYear,
-          phone: _phoneCtrl.text.trim(),
-          role: _selectedRole,
-        );
+    try {
+      await ref.read(authProvider.notifier).register(
+            name: _nameCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            password: _passCtrl.text.trim(),
+            phone: _phoneCtrl.text.trim(),
+          );
 
-    if (!mounted) return;
-    setState(() => _loading = false);
-
-    if (_selectedRole == 'canteen') {
-      context.go('/canteen');
-    } else {
+      if (!mounted) return;
+      setState(() => _loading = false);
       context.go('/student');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceAll('Exception: ', '');
+      });
     }
   }
 
@@ -107,31 +93,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                // Role selector
-                Text(
-                  'I am a',
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _RoleChip(
-                      label: 'Student',
-                      icon: Icons.school_rounded,
-                      selected: _selectedRole == 'student',
-                      onTap: () => setState(() => _selectedRole = 'student'),
-                    ),
-                    const SizedBox(width: 12),
-                    _RoleChip(
-                      label: 'Canteen Staff',
-                      icon: Icons.restaurant_rounded,
-                      selected: _selectedRole == 'canteen',
-                      onTap: () => setState(() => _selectedRole = 'canteen'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
                 TextFormField(
                   controller: _nameCtrl,
                   textInputAction: TextInputAction.next,
@@ -139,7 +100,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     labelText: 'Full Name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  validator: (v) => (v == null || v.isEmpty) ? 'Enter your name' : null,
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Enter your name' : null,
                 ),
                 const SizedBox(height: 14),
 
@@ -148,8 +110,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    labelText: 'College Email',
-                    hintText: 'name@vppcoeva.edu.in',
+                    labelText: 'Email',
+                    hintText: 'name@example.com',
                     prefixIcon: Icon(Icons.email_outlined),
                   ),
                   validator: (v) {
@@ -168,7 +130,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     labelText: 'Password',
                     prefixIcon: const Icon(Icons.lock_outline_rounded),
                     suffixIcon: IconButton(
-                      icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                      icon: Icon(_obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
                   ),
@@ -188,33 +152,34 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     labelText: 'Phone Number',
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
-                  validator: (v) => (v == null || v.length < 10) ? 'Enter valid phone' : null,
+                  validator: (v) =>
+                      (v == null || v.length < 10) ? 'Enter valid phone' : null,
                 ),
 
-                if (_selectedRole == 'student') ...[
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedDept,
-                    decoration: const InputDecoration(
-                      labelText: 'Department',
-                      prefixIcon: Icon(Icons.apartment_rounded),
+                if (_error != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: AppColors.error.withValues(alpha: 0.3)),
                     ),
-                    items: _departments
-                        .map((d) => DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 14))))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selectedDept = v!),
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedYear,
-                    decoration: const InputDecoration(
-                      labelText: 'Year',
-                      prefixIcon: Icon(Icons.calendar_today_rounded),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline,
+                            color: AppColors.error, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(
+                                color: AppColors.error, fontSize: 13),
+                          ),
+                        ),
+                      ],
                     ),
-                    items: _years
-                        .map((y) => DropdownMenuItem(value: y, child: Text(y, style: const TextStyle(fontSize: 14))))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selectedYear = v!),
                   ),
                 ],
 
@@ -229,7 +194,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Already have an account? ', style: theme.textTheme.bodyMedium),
+                    Text('Already have an account? ',
+                        style: theme.textTheme.bodyMedium),
                     GestureDetector(
                       onTap: () => context.pop(),
                       child: Text(
@@ -246,64 +212,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 24),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _RoleChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          decoration: BoxDecoration(
-            color: selected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.outline.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: selected ? Colors.white : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                  color: selected ? Colors.white : theme.colorScheme.onSurface,
-                ),
-              ),
-            ],
           ),
         ),
       ),

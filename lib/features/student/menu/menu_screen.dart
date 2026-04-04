@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
-import 'package:campus_eats_ag/data/mock/mock_menu_data.dart';
+import 'package:campus_eats_ag/data/repositories/menu_repository.dart';
 import 'package:campus_eats_ag/data/repositories/cart_repository.dart';
 import 'package:campus_eats_ag/models/cart_item.dart';
 import 'package:campus_eats_ag/models/menu_category.dart';
@@ -21,11 +21,32 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   final _searchCtrl = TextEditingController();
   late String _selectedCat;
   String _searchQ = '';
+  List<MenuCategory> _categories = [const MenuCategory(id: 'all', name: 'All', emoji: 'all')];
+  List<MenuItem> _items = [];
+
+  bool _loadingItems = true;
 
   @override
   void initState() {
     super.initState();
     _selectedCat = widget.initialCategory ?? 'all';
+    _loadCategories();
+    _loadItems();
+  }
+
+  Future<void> _loadCategories() async {
+    final repo = ref.read(menuRepositoryProvider);
+    final cats = await repo.getCategories();
+    if (mounted) setState(() { _categories = cats; });
+  }
+
+  Future<void> _loadItems() async {
+    setState(() => _loadingItems = true);
+    final repo = ref.read(menuRepositoryProvider);
+    final items = _searchQ.isNotEmpty
+        ? await repo.getItems(search: _searchQ)
+        : await repo.getItems(categoryId: _selectedCat);
+    if (mounted) setState(() { _items = items; _loadingItems = false; });
   }
 
   @override
@@ -38,10 +59,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   Widget build(BuildContext context) {
     final selectedCat = _selectedCat;
     final searchQ = _searchQ;
-
-    final List<MenuItem> items = searchQ.isNotEmpty
-        ? MockMenuData.search(searchQ)
-        : MockMenuData.getByCategory(selectedCat);
+    final items = _items;
 
     return Scaffold(
       appBar: AppBar(
@@ -60,7 +78,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
               controller: _searchCtrl,
-              onChanged: (v) => setState(() => _searchQ = v),
+              onChanged: (v) {
+                setState(() => _searchQ = v);
+                _loadItems();
+              },
               decoration: InputDecoration(
                 hintText: 'Search menu...',
                 prefixIcon: const Icon(Icons.search_rounded),
@@ -70,6 +91,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQ = '');
+                          _loadItems();
                         },
                       )
                     : null,
@@ -87,14 +109,17 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 physics: const BouncingScrollPhysics(),
-                itemCount: MockMenuData.categories.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemCount: _categories.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 8),
                 itemBuilder: (ctx, i) {
-                  final cat = MockMenuData.categories[i];
+                  final cat = _categories[i];
                   return _CategoryChip(
                     category: cat,
                     selected: selectedCat == cat.id,
-                    onTap: () => setState(() => _selectedCat = cat.id),
+                    onTap: () {
+                      setState(() => _selectedCat = cat.id);
+                      _loadItems();
+                    },
                   );
                 },
               ),
@@ -104,24 +129,27 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
           // Items list
           Expanded(
-            child: items.isEmpty
-                ? EmptyState(
-                    icon: Icons.search_off_rounded,
-                    title: 'No items found',
-                    subtitle: 'Try a different search term or category',
-                    actionLabel: 'Clear Search',
-                    onAction: () {
-                      _searchCtrl.clear();
-                      setState(() => _searchQ = '');
-                    },
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    physics: const BouncingScrollPhysics(),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (ctx, i) => _MenuItemCard(item: items[i]),
-                  ),
+            child: _loadingItems
+                ? const Center(child: CircularProgressIndicator())
+                : items.isEmpty
+                    ? EmptyState(
+                        icon: Icons.search_off_rounded,
+                        title: 'No items found',
+                        subtitle: 'Try a different search term or category',
+                        actionLabel: 'Clear Search',
+                        onAction: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQ = '');
+                          _loadItems();
+                        },
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: items.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 10),
+                        itemBuilder: (ctx, i) => _MenuItemCard(item: items[i]),
+                      ),
           ),
         ],
       ),

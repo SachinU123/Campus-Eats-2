@@ -1,0 +1,86 @@
+import { PrismaService } from '../prisma/prisma.service.js';
+export declare class MenuService {
+    private readonly prisma;
+    constructor(prisma: PrismaService);
+    getCategories(): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        slug: string;
+        emoji: string;
+        sortOrder: number;
+    }[]>;
+    getItems(categoryId?: string): Promise<({
+        category: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            slug: string;
+            emoji: string;
+            sortOrder: number;
+        };
+    } & {
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        emoji: string;
+        isPopular: boolean;
+        categoryId: string;
+        description: string;
+        imageUrl: string;
+        price: number;
+        isVeg: boolean;
+        isAvailable: boolean;
+    })[]>;
+    getItemById(id: string): Promise<({
+        category: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            slug: string;
+            emoji: string;
+            sortOrder: number;
+        };
+    } & {
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        emoji: string;
+        isPopular: boolean;
+        categoryId: string;
+        description: string;
+        imageUrl: string;
+        price: number;
+        isVeg: boolean;
+        isAvailable: boolean;
+    }) | null>;
+    searchItems(query: string): Promise<({
+        category: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            slug: string;
+            emoji: string;
+            sortOrder: number;
+        };
+    } & {
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        emoji: string;
+        isPopular: boolean;
+        categoryId: string;
+        description: string;
+        imageUrl: string;
+        price: number;
+        isVeg: boolean;
+        isAvailable: boolean;
+    })[]>;
+}
