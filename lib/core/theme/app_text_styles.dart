@@ -31,13 +31,13 @@ class AppTextStyles {
       );
 
   static TextStyle bodyMedium(BuildContext context) => GoogleFonts.inter(
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: FontWeight.w400,
         color: Theme.of(context).colorScheme.onSurface,
       );
 
   static TextStyle bodySmall(BuildContext context) => GoogleFonts.inter(
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: FontWeight.w400,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       );
@@ -50,10 +50,10 @@ class AppTextStyles {
       );
 
   static TextStyle labelSmall(BuildContext context) => GoogleFonts.inter(
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: FontWeight.w500,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
-        letterSpacing: 0.5,
+        letterSpacing: 0.1,
       );
 
   static TextStyle price(BuildContext context) => GoogleFonts.poppins(
@@ -62,21 +62,21 @@ class AppTextStyles {
         color: Theme.of(context).colorScheme.primary,
       );
 
-  static TextStyle priceSmall(BuildContext context) => GoogleFonts.poppins(
-        fontSize: 13,
+  static TextStyle priceSmall(BuildContext context) => GoogleFonts.inter(
+        fontSize: 14,
         fontWeight: FontWeight.w600,
         color: Theme.of(context).colorScheme.primary,
       );
 
-  static TextStyle tokenLarge(BuildContext context) => GoogleFonts.poppins(
-        fontSize: 48,
+  static TextStyle tokenLarge(BuildContext context) => GoogleFonts.inter(
+        fontSize: 42,
         fontWeight: FontWeight.w800,
         color: Theme.of(context).colorScheme.primary,
-        letterSpacing: 4,
+        letterSpacing: 2,
       );
 
   static TextStyle caption(BuildContext context) => GoogleFonts.inter(
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: FontWeight.w400,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       );

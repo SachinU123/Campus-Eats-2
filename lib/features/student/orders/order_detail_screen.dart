@@ -16,7 +16,7 @@ class OrderDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final _ = ref.watch(orderProvider); // watch for rebuild
+    final _ = ref.watch(orderProvider);
     final o = order ?? ref.read(orderProvider.notifier).findById(orderId);
 
     if (o == null) {
@@ -37,138 +37,146 @@ class OrderDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isCollected = order.status == 'Collected';
     final isReady = order.status == 'Ready';
+    final isActive = order.isActive; // True if order is NOT completed/cancelled
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Order #${order.token}'),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           onPressed: () => context.pop(),
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Column(
           children: [
-            // Status card
+            // Status block
             AppCard(
               child: Row(
                 children: [
                   StatusChip(status: order.status),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Text(
                       _statusMessage(order.status),
-                      style: theme.textTheme.bodySmall,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.3,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // QR section
-            AppCard(
-              child: Column(
-                children: [
-                  Text(
-                    'Token #${order.token}',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: theme.colorScheme.primary,
-                      letterSpacing: 3,
+            // QR block (ONLY IF ACTIVE)
+            if (isActive) ...[
+              AppCard(
+                child: Column(
+                  children: [
+                    Text(
+                      'Token',
+                      style: theme.textTheme.bodySmall?.copyWith(letterSpacing: 1),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  AnimatedOpacity(
-                    opacity: isCollected ? 0.35 : 1.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: Container(
+                    Text(
+                      '#${order.token}',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        color: theme.colorScheme.primary,
+                        letterSpacing: 4,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                         border: isReady
-                            ? Border.all(color: AppColors.success.withValues(alpha: 0.5), width: 2)
-                            : null,
+                            ? Border.all(color: AppColors.success.withValues(alpha: 0.8), width: 3)
+                            : Border.all(color: AppColors.dividerLight),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
                       child: QrImageView(
                         data: order.qrContent,
                         version: QrVersions.auto,
-                        size: 180,
+                        size: 160,
                         backgroundColor: Colors.white,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    isCollected ? 'Already Collected' : 'Show this QR at counter',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isCollected
-                          ? theme.colorScheme.onSurfaceVariant
-                          : isReady
-                              ? AppColors.success
-                              : theme.colorScheme.onSurface,
+                    const SizedBox(height: 12),
+                    Text(
+                      isReady ? 'Your food is ready! Show this QR.' : 'Show this QR at the counter',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isReady ? AppColors.success : theme.colorScheme.onSurface,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 16),
+            ],
 
-            // Order items
+            // Receipt Block
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Items Ordered',
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    'Receipt',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 16),
                   ...order.items.map((item) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            VegBadge(isVeg: item.isVeg),
-                            const SizedBox(width: 8),
-                            Text(item.emoji),
-                            const SizedBox(width: 6),
+                            Text(item.emoji, style: const TextStyle(fontSize: 16)),
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: Text(
-                                item.name,
-                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.name,
+                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Rs. ${item.price.toInt()} x ${item.quantity}',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ],
                               ),
                             ),
                             Text(
-                              'x${item.quantity}',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
                               'Rs. ${item.lineTotal.toInt()}',
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                             ),
                           ],
                         ),
                       )),
-                  const Divider(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Divider(height: 1),
+                  ),
                   Row(
                     children: [
                       const Text(
-                        'Total',
+                        'Total Amount',
                         style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                       ),
                       const Spacer(),
@@ -176,7 +184,7 @@ class OrderDetailView extends StatelessWidget {
                         'Rs. ${order.total.toInt()}',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
-                          fontSize: 18,
+                          fontSize: 20,
                           color: theme.colorScheme.primary,
                         ),
                       ),
@@ -185,19 +193,19 @@ class OrderDetailView extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // Order meta
+            // Order Meta
             AppCard(
               child: Column(
                 children: [
                   _MetaRow(label: 'Order ID', value: order.id),
-                  const Divider(height: 14),
+                  const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
                   _MetaRow(label: 'Placed At', value: AppUtils.formatDateTime(order.placedAt)),
-                  const Divider(height: 14),
-                  _MetaRow(label: 'Payment', value: order.paymentMethod),
+                  const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
+                  _MetaRow(label: 'Payment Method', value: order.paymentMethod),
                   if (order.isScheduled && order.scheduledFor != null) ...[
-                    const Divider(height: 14),
+                    const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
                     _MetaRow(
                       label: 'Scheduled For',
                       value: AppUtils.formatTimeShort(order.scheduledFor!),
@@ -206,8 +214,7 @@ class OrderDetailView extends StatelessWidget {
                 ],
               ),
             ),
-
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
           ],
         ),
       ),
@@ -216,11 +223,11 @@ class OrderDetailView extends StatelessWidget {
 
   String _statusMessage(String status) {
     switch (status) {
-      case 'Preparing': return 'Your food is being prepared. Visit the counter soon.';
-      case 'Ready': return 'Your order is ready! Show your QR code at the counter.';
-      case 'Scheduled': return 'Your order is scheduled. It will be prepared on time.';
-      case 'Verified': return 'Your token was verified. Collect your food shortly.';
-      case 'Collected': return 'Your order has been collected. Enjoy your meal!';
+      case 'Preparing': return 'Your food is currently being prepared.';
+      case 'Ready': return 'Your order is ready to be picked up!';
+      case 'Scheduled': return 'Your order is scheduled for preparation.';
+      case 'Verified': return 'Token verified. Collect your food shortly.';
+      case 'Collected': return 'Your order has been collected successfully.';
       default: return 'Processing your order...';
     }
   }
@@ -237,7 +244,7 @@ class _MetaRow extends StatelessWidget {
       children: [
         Text(label, style: Theme.of(context).textTheme.bodySmall),
         const Spacer(),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
       ],
     );
   }

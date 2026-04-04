@@ -6,6 +6,7 @@ import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
+import 'package:campus_eats_ag/features/student/orders/order_detail_screen.dart';
 import 'package:campus_eats_ag/features/student/orders/order_slip_screen.dart';
 import 'package:campus_eats_ag/models/order.dart';
 
@@ -14,7 +15,7 @@ class StudentOrdersScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final _ = ref.watch(orderProvider); // watch for rebuild
+    final _ = ref.watch(orderProvider);
     final user = ref.watch(authProvider);
 
     final myOrders = user != null
@@ -30,6 +31,7 @@ class StudentOrdersScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('My Orders'),
           bottom: const TabBar(
+            indicatorWeight: 3,
             tabs: [
               Tab(text: 'Active'),
               Tab(text: 'Completed'),
@@ -38,8 +40,8 @@ class StudentOrdersScreen extends ConsumerWidget {
         ),
         body: TabBarView(
           children: [
-            _OrderList(orders: active, empty: 'No active orders'),
-            _OrderList(orders: completed, empty: 'No completed orders'),
+            _OrderList(orders: active, empty: 'No active orders', isActive: true),
+            _OrderList(orders: completed, empty: 'No completed orders', isActive: false),
           ],
         ),
       ),
@@ -50,32 +52,34 @@ class StudentOrdersScreen extends ConsumerWidget {
 class _OrderList extends StatelessWidget {
   final List<Order> orders;
   final String empty;
+  final bool isActive;
 
-  const _OrderList({required this.orders, required this.empty});
+  const _OrderList({required this.orders, required this.empty, required this.isActive});
 
   @override
   Widget build(BuildContext context) {
     if (orders.isEmpty) {
       return EmptyState(
-        icon: Icons.receipt_long_outlined,
+        icon: Icons.receipt_long_rounded,
         title: empty,
         subtitle: 'Your orders will appear here',
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       physics: const BouncingScrollPhysics(),
       itemCount: orders.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (ctx, i) => _StudentOrderCard(order: orders[i]),
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (ctx, i) => _StudentOrderCard(order: orders[i], isActiveTab: isActive),
     );
   }
 }
 
 class _StudentOrderCard extends StatefulWidget {
   final Order order;
-  const _StudentOrderCard({required this.order});
+  final bool isActiveTab;
+  const _StudentOrderCard({required this.order, required this.isActiveTab});
 
   @override
   State<_StudentOrderCard> createState() => _StudentOrderCardState();
@@ -90,99 +94,95 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
     final order = widget.order;
 
     return AppCard(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => OrderDetailScreen(orderId: order.id, order: order),
+          ),
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- Token row (clean, no status chip here) ---
           Row(
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+              StatusChip(status: order.status),
+              const Spacer(),
+              if (order.isScheduled && order.scheduledFor != null)
+                Row(
+                  children: [
+                    const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF00ACC1)),
+                    const SizedBox(width: 4),
+                    Text(
+                      AppUtils.formatTimeShort(order.scheduledFor!),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF00ACC1),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text(
+                  AppUtils.formatDateTime(order.placedAt),
+                  style: theme.textTheme.bodySmall,
                 ),
-                child: Text(
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          if (widget.isActiveTab) ...[
+            Row(
+              children: [
+                Text(
+                  'Token: ',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+                Text(
                   '#${order.token}',
                   style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
                     color: theme.colorScheme.primary,
                     letterSpacing: 1.5,
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (order.isScheduled && order.scheduledFor != null)
-                      Row(
-                        children: [
-                          const Icon(Icons.schedule_rounded,
-                              size: 13, color: Color(0xFF00838F)),
-                          const SizedBox(width: 3),
-                          Text(
-                            'Sched. ${AppUtils.formatTimeShort(order.scheduledFor!)}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF00838F),
-                            ),
-                          ),
-                        ],
-                      )
-                    else
-                      Text(
-                        AppUtils.formatDateTime(order.placedAt),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
 
-          // --- Items summary ---
           ...order.items.map((item) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
-                    Text(item.emoji,
-                        style: const TextStyle(fontSize: 13)),
-                    const SizedBox(width: 6),
+                    Text(item.emoji, style: const TextStyle(fontSize: 14)),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        item.name,
-                        style: theme.textTheme.bodyMedium,
+                        '${item.quantity}x ${item.name}',
+                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Text(
-                      'x${item.quantity}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
                       'Rs. ${item.lineTotal.toInt()}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 12),
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                     ),
                   ],
                 ),
               )),
 
-          const Divider(height: 18),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Divider(height: 1, thickness: 1),
+          ),
 
-          // --- Total ---
           Row(
             children: [
-              const Text('Total',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text('Total', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
@@ -195,85 +195,79 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
             ],
           ),
 
-          const SizedBox(height: 12),
-
-          // --- QR toggle section ---
-          if (_showQr) ...[
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.25),
+          if (widget.isActiveTab) ...[
+            const SizedBox(height: 16),
+            if (_showQr) ...[
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.dividerLight),
+                  ),
+                  child: QrImageView(
+                    data: order.qrContent,
+                    version: QrVersions.auto,
+                    size: 140,
+                    backgroundColor: Colors.white,
                   ),
                 ),
-                child: QrImageView(
-                  data: order.qrContent,
-                  version: QrVersions.auto,
-                  size: 140,
-                  backgroundColor: Colors.white,
-                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: Text(
-                'Show this QR at counter',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // --- Bottom actions: only QR + View Slip ---
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => setState(() => _showQr = !_showQr),
-                  icon: Icon(
-                    _showQr ? Icons.qr_code_2_rounded : Icons.qr_code_rounded,
-                    size: 16,
-                  ),
-                  label: Text(_showQr ? 'Hide QR' : 'Show QR'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
+              const SizedBox(height: 16),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() => _showQr = !_showQr),
+                    icon: Icon(
+                      _showQr ? Icons.visibility_off_rounded : Icons.qr_code_rounded,
+                      size: 18,
+                    ),
+                    label: Text(_showQr ? 'Hide QR' : 'Show QR'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => OrderSlipScreen(order: order),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                    label: const Text('Slip'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Spacer(),
+                TextButton(
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => OrderSlipScreen(order: order),
+                        builder: (_) => OrderDetailScreen(orderId: order.id, order: order),
                       ),
                     );
                   },
-                  icon: const Icon(Icons.receipt_rounded, size: 16),
-                  label: const Text('View Slip'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
+                  child: const Text('View Details'),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ]
         ],
       ),
     );
