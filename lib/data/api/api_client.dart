@@ -79,6 +79,19 @@ class ApiClient {
     }
   }
 
+  Future<ApiResult> delete(String path) async {
+    _logRequest('DELETE', path);
+    try {
+      final response = await _client
+          .delete(_uri(path), headers: _headers)
+          .timeout(ApiConfig.receiveTimeout);
+      return _handleResponse('DELETE', path, response);
+    } catch (e) {
+      _logError('DELETE', path, e);
+      return ApiResult.failure(_errorMessage(e));
+    }
+  }
+
   // ─── Response Handler ──────────────────────────────────────
 
   ApiResult _handleResponse(String method, String path, http.Response response) {

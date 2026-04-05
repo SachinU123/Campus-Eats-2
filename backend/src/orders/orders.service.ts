@@ -16,8 +16,38 @@ export class OrderService {
   // ─── Create Order ───────────────────────────────────────────
 
   async createOrder(studentId: string, dto: CreateOrderDto) {
-    this.logger.log(`[ORDER] createOrder for student: ${studentId}, items: ${JSON.stringify(dto.items)}`);
-    // Validate and fetch menu items
+    this.logger.log(
+      `[ORDER] createOrder for student: ${studentId}, items: ${JSON.stringify(dto.items)}`,
+    );
+
+    // ── Schedule validation ──────────────────────────────────
+    let scheduledFor: Date | null = null;
+    if (dto.scheduledFor) {
+      const parsed = new Date(dto.scheduledFor);
+      if (isNaN(parsed.getTime())) {
+        throw new BadRequestException('Invalid scheduledFor date format');
+      }
+      const nowMs = Date.now();
+      const diffMs = parsed.getTime() - nowMs;
+      const diffMin = diffMs / 60_000;
+
+      if (diffMin < 30) {
+        throw new BadRequestException(
+          'Scheduled time must be at least 30 minutes from now',
+        );
+      }
+      if (diffMin > 120) {
+        throw new BadRequestException(
+          'Scheduled time cannot be more than 2 hours ahead',
+        );
+      }
+      scheduledFor = parsed;
+      this.logger.log(
+        `[ORDER] Scheduled order for ${parsed.toISOString()} (${Math.round(diffMin)} min from now)`,
+      );
+    }
+
+    // ── Validate and fetch menu items ────────────────────────
     const menuItemIds = dto.items.map((item) => item.menuItemId);
     const menuItems = await this.prisma.menuItem.findMany({
       where: { id: { in: menuItemIds }, isAvailable: true },
@@ -31,7 +61,7 @@ export class OrderService {
       );
     }
 
-    // Calculate server-side totals
+    // ── Calculate server-side totals ─────────────────────────
     const menuMap = new Map(menuItems.map((m) => [m.id, m]));
     let subtotal = 0;
     const orderItems = dto.items.map((item) => {
@@ -49,12 +79,33 @@ export class OrderService {
       };
     });
 
-    const total = subtotal; // No additional fees for now
+    const total = subtotal;
 
-    // Generate token number (4-digit numeric, daily unique)
+    // ── Compute ETA (only for non-scheduled / immediate orders) ─
+    let estimatedReadyAt: Date | null = null;
+    if (!scheduledFor) {
+      const maxPrepMinutes = Math.max(
+        ...menuItems.map((m) => m.prepTimeMinutes ?? 5),
+      );
+      const buffer = 5; // standard kitchen buffer
+
+      // Rush hour: 11:00 AM – 2:00 PM adds +10 minutes
+      const now = new Date();
+      const hour = now.getHours();
+      const rushExtra = hour >= 11 && hour < 14 ? 10 : 0;
+
+      const totalMinutes = maxPrepMinutes + buffer + rushExtra;
+      estimatedReadyAt = new Date(now.getTime() + totalMinutes * 60_000);
+
+      this.logger.log(
+        `[ETA] Computed: maxPrep=${maxPrepMinutes}min buffer=${buffer}min rush=${rushExtra}min → ready at ${estimatedReadyAt.toISOString()}`,
+      );
+    }
+
+    // ── Generate token ────────────────────────────────────────
     const tokenNumber = await this.generateToken();
 
-    // Create order with items in a transaction
+    // ── Create order ──────────────────────────────────────────
     const order = await this.prisma.order.create({
       data: {
         studentId,
@@ -64,6 +115,8 @@ export class OrderService {
         total,
         paymentStatus: 'pending',
         notes: dto.notes,
+        scheduledFor,
+        estimatedReadyAt,
         items: {
           create: orderItems,
         },
@@ -130,6 +183,98 @@ export class OrderService {
       },
       orderBy: { orderedAt: 'desc' },
     });
+  }
+
+  // ─── Canteen: Reports ───────────────────────────────────────
+
+  async getCanteenReports() {
+    const now = new Date();
+
+    // Today boundaries (midnight to midnight)
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // This month boundaries
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    // Paid statuses only (completed orders = real revenue)
+    const paidStatuses = ['paid', 'completed'];
+
+    // Today stats
+    const todayOrders = await this.prisma.order.findMany({
+      where: {
+        status: { in: paidStatuses },
+        orderedAt: { gte: todayStart, lte: todayEnd },
+      },
+      include: { items: true },
+    });
+
+    const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
+
+    // This month stats
+    const monthOrders = await this.prisma.order.findMany({
+      where: {
+        status: { in: paidStatuses },
+        orderedAt: { gte: monthStart, lte: monthEnd },
+      },
+      include: { items: true },
+    });
+
+    const monthRevenue = monthOrders.reduce((s, o) => s + o.total, 0);
+
+    // Top items (across all time)
+    const allOrderItems = await this.prisma.orderItem.groupBy({
+      by: ['itemNameSnapshot'],
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: 'desc' } },
+      take: 5,
+    });
+
+    // Average daily orders (this month)
+    const daysPassed = now.getDate();
+    const avgDailyOrders =
+      daysPassed > 0
+        ? Math.round((monthOrders.length / daysPassed) * 10) / 10
+        : 0;
+
+    this.logger.log(
+      `[REPORTS] today=${todayOrders.length} orders Rs.${todayRevenue} | month=${monthOrders.length} orders Rs.${monthRevenue}`,
+    );
+
+    return {
+      today: {
+        orderCount: todayOrders.length,
+        revenue: todayRevenue,
+      },
+      thisMonth: {
+        orderCount: monthOrders.length,
+        revenue: monthRevenue,
+        avgDailyOrders,
+      },
+      topItems: allOrderItems.map((item) => ({
+        name: item.itemNameSnapshot,
+        totalQuantity: item._sum.quantity ?? 0,
+      })),
+    };
+  }
+
+  // ─── Canteen: Clear Completed History ──────────────────────
+
+  async clearCompletedHistory(canteenUserId: string) {
+    this.logger.log(
+      `[CANTEEN] clearCompletedHistory requested by canteen user: ${canteenUserId}`,
+    );
+
+    // Only delete orders in 'completed' status — NEVER active orders
+    const result = await this.prisma.order.deleteMany({
+      where: { status: 'completed' },
+    });
+
+    this.logger.log(`[CANTEEN] Cleared ${result.count} completed orders`);
+    return { cleared: result.count };
   }
 
   // ─── Canteen: Update Order Status ──────────────────────────
@@ -258,9 +403,10 @@ export class OrderService {
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod || 'razorpay',
       razorpayPaymentId: order.paymentTransaction?.razorpayPaymentId || null,
+      scheduledFor: order.scheduledFor?.toISOString() || null,
+      estimatedReadyAt: order.estimatedReadyAt?.toISOString() || null,
       orderDate: order.orderedAt,
       generatedAt: new Date().toISOString(),
-      // Plain text format for thermal printing
       printText: this.buildPrintText(order),
     };
 
@@ -285,6 +431,12 @@ export class OrderService {
     lines.push(`Token: #${order.tokenNumber}`);
     lines.push(`Order: ${order.id.slice(0, 8)}`);
     lines.push(`Date: ${new Date(order.orderedAt).toLocaleString()}`);
+    if (order.scheduledFor) {
+      lines.push(`Scheduled: ${new Date(order.scheduledFor).toLocaleTimeString()}`);
+    }
+    if (order.estimatedReadyAt) {
+      lines.push(`Ready by: ${new Date(order.estimatedReadyAt).toLocaleTimeString()}`);
+    }
     lines.push('--------------------------------');
     lines.push(`Student: ${order.student?.name || 'N/A'}`);
     lines.push('--------------------------------');

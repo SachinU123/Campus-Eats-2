@@ -25,6 +25,10 @@ class StudentOrdersScreen extends ConsumerWidget {
     final active = myOrders.where((o) => o.isActive).toList();
     final completed = myOrders.where((o) => o.isCompleted).toList();
 
+    Future<void> onRefresh() async {
+      await ref.read(orderProvider.notifier).reload();
+    }
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -40,8 +44,18 @@ class StudentOrdersScreen extends ConsumerWidget {
         ),
         body: TabBarView(
           children: [
-            _OrderList(orders: active, empty: 'No active orders', isActive: true),
-            _OrderList(orders: completed, empty: 'No completed orders', isActive: false),
+            _OrderList(
+              orders: active,
+              empty: 'No active orders',
+              isActive: true,
+              onRefresh: onRefresh,
+            ),
+            _OrderList(
+              orders: completed,
+              empty: 'No completed orders',
+              isActive: false,
+              onRefresh: onRefresh,
+            ),
           ],
         ),
       ),
@@ -53,25 +67,44 @@ class _OrderList extends StatelessWidget {
   final List<Order> orders;
   final String empty;
   final bool isActive;
+  final Future<void> Function() onRefresh;
 
-  const _OrderList({required this.orders, required this.empty, required this.isActive});
+  const _OrderList({
+    required this.orders,
+    required this.empty,
+    required this.isActive,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (orders.isEmpty) {
-      return EmptyState(
-        icon: Icons.receipt_long_rounded,
-        title: empty,
-        subtitle: 'Your orders will appear here',
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 400,
+            child: EmptyState(
+              icon: Icons.receipt_long_rounded,
+              title: empty,
+              subtitle: 'Pull down to refresh',
+            ),
+          ),
+        ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-      physics: const BouncingScrollPhysics(),
-      itemCount: orders.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 16),
-      itemBuilder: (ctx, i) => _StudentOrderCard(order: orders[i], isActiveTab: isActive),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: orders.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 16),
+        itemBuilder: (ctx, i) =>
+            _StudentOrderCard(order: orders[i], isActiveTab: isActive),
+      ),
     );
   }
 }
@@ -108,17 +141,35 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
             children: [
               StatusChip(status: order.status),
               const Spacer(),
+              // Show scheduled or ETA time
               if (order.isScheduled && order.scheduledFor != null)
                 Row(
                   children: [
-                    const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF00ACC1)),
+                    const Icon(Icons.schedule_rounded,
+                        size: 14, color: Color(0xFF00ACC1)),
                     const SizedBox(width: 4),
                     Text(
-                      AppUtils.formatTimeShort(order.scheduledFor!),
+                      'Pickup ${AppUtils.formatTimeShort(order.scheduledFor!)}',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF00ACC1),
+                      ),
+                    ),
+                  ],
+                )
+              else if (order.isActive && order.estimatedReadyAt != null)
+                Row(
+                  children: [
+                    const Icon(Icons.timer_outlined,
+                        size: 14, color: Color(0xFFFF9800)),
+                    const SizedBox(width: 4),
+                    Text(
+                      order.etaLabel ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFFF9800),
                       ),
                     ),
                   ],
@@ -131,13 +182,14 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
             ],
           ),
           const SizedBox(height: 16),
-          
+
           if (widget.isActiveTab) ...[
             Row(
               children: [
                 Text(
                   'Token: ',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
                 Text(
                   '#${order.token}',
@@ -162,14 +214,16 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                     Expanded(
                       child: Text(
                         '${item.quantity}x ${item.name}',
-                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w500, fontSize: 14),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Text(
                       'Rs. ${item.lineTotal.toInt()}',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13),
                     ),
                   ],
                 ),
@@ -182,7 +236,9 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
 
           Row(
             children: [
-              const Text('Total', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              const Text('Total',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
@@ -222,7 +278,9 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                   child: OutlinedButton.icon(
                     onPressed: () => setState(() => _showQr = !_showQr),
                     icon: Icon(
-                      _showQr ? Icons.visibility_off_rounded : Icons.qr_code_rounded,
+                      _showQr
+                          ? Icons.visibility_off_rounded
+                          : Icons.qr_code_rounded,
                       size: 18,
                     ),
                     label: Text(_showQr ? 'Hide QR' : 'Show QR'),
@@ -259,7 +317,8 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => OrderDetailScreen(orderId: order.id, order: order),
+                        builder: (_) =>
+                            OrderDetailScreen(orderId: order.id, order: order),
                       ),
                     );
                   },
@@ -267,7 +326,7 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                 ),
               ],
             ),
-          ]
+          ],
         ],
       ),
     );

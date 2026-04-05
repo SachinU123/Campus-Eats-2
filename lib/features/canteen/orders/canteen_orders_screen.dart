@@ -2,14 +2,13 @@ import 'dart:async';
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
 import 'package:campus_eats_ag/models/order.dart';
 
-// ─── Canteen-specific provider — always fetches from live backend ──────────
-// This is SEPARATE from the student orderProvider which holds the student's
-// own local-device order list. Canteen needs the full live DB view.
+// ─── Provider — always fetches live from backend ──────────────────────────
 final canteenOrdersProvider =
     AsyncNotifierProvider<CanteenOrdersNotifier, List<Order>>(
   CanteenOrdersNotifier.new,
@@ -33,15 +32,17 @@ class CanteenOrdersNotifier extends AsyncNotifier<List<Order>> {
   }
 
   Future<void> updateStatus(String orderId, String newStatus) async {
-    dev.log('[CANTEEN] updateStatus orderId=$orderId status=$newStatus', name: 'CanteenOrders');
+    dev.log(
+      '[CANTEEN] updateStatus orderId=$orderId status=$newStatus',
+      name: 'CanteenOrders',
+    );
     final repo = ref.read(orderRepositoryProvider);
     await repo.updateStatus(orderId, newStatus);
-    // Refresh to get authoritative server state
     await refresh();
   }
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────
+// ─── Screen ──────────────────────────────────────────────────────────────
 
 class CanteenOrdersScreen extends ConsumerStatefulWidget {
   const CanteenOrdersScreen({super.key});
@@ -60,11 +61,9 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-refresh every 15 s so canteen sees new paid orders without manual pull-to-refresh
+    // Auto-refresh every 15 s — canteen always sees new paid orders
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) {
-        ref.read(canteenOrdersProvider.notifier).refresh();
-      }
+      if (mounted) ref.read(canteenOrdersProvider.notifier).refresh();
     });
   }
 
@@ -78,9 +77,10 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
 
   void _onSearch(String q) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      setState(() => _query = q);
-    });
+    _debounce = Timer(
+      const Duration(milliseconds: 300),
+      () => setState(() => _query = q),
+    );
   }
 
   @override
@@ -91,20 +91,18 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Orders'),
+          title: const Text('Kitchen Orders'),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               tooltip: 'Refresh orders',
-              onPressed: () =>
-                  ref.read(canteenOrdersProvider.notifier).refresh(),
+              onPressed: () => ref.read(canteenOrdersProvider.notifier).refresh(),
             ),
           ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(100),
             child: Column(
               children: [
-                // Search bar
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: TextField(
@@ -122,8 +120,8 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
                               },
                             )
                           : null,
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 0, horizontal: 16),
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -144,6 +142,8 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                const Icon(Icons.wifi_off_rounded, size: 48, color: Colors.grey),
+                const SizedBox(height: 12),
                 Text('Failed to load orders:\n$e',
                     textAlign: TextAlign.center),
                 const SizedBox(height: 16),
@@ -166,15 +166,15 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
                 : orders;
 
             final active = filtered.where((o) => o.isActive).toList();
-            final completed =
-                filtered.where((o) => o.isCompleted).toList();
+            final completed = filtered.where((o) => o.isCompleted).toList();
+
+            Future<void> doRefresh() =>
+                ref.read(canteenOrdersProvider.notifier).refresh();
 
             return TabBarView(
               children: [
-                _CanteenOrderList(
-                    orders: active, empty: 'No active paid orders'),
-                _CanteenOrderList(
-                    orders: completed, empty: 'No completed orders'),
+                _ActiveOrderList(orders: active, onRefresh: doRefresh),
+                _CompletedOrderList(orders: completed, onRefresh: doRefresh),
               ],
             );
           },
@@ -184,46 +184,216 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen> {
   }
 }
 
-class _CanteenOrderList extends StatelessWidget {
+// ─── Active Orders — Time-Grouped ───────────────────────────────────────
+
+class _ActiveOrderList extends StatelessWidget {
   final List<Order> orders;
-  final String empty;
-  const _CanteenOrderList({required this.orders, required this.empty});
+  final Future<void> Function() onRefresh;
+  const _ActiveOrderList({required this.orders, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
     if (orders.isEmpty) {
-      return EmptyState(
-        icon: Icons.list_alt_outlined,
-        title: empty,
-        subtitle: 'Pull-to-refresh or wait for auto-refresh',
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: const SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 400,
+            child: EmptyState(
+              icon: Icons.restaurant_menu_rounded,
+              title: 'No active orders',
+              subtitle: 'New paid orders appear here — pull to refresh',
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Group orders into time buckets
+    final groups = _groupOrders(orders);
+
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: groups.length,
+        itemBuilder: (ctx, i) {
+          final group = groups[i];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Group header
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: group.headerColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: group.headerColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(group.headerIcon,
+                              size: 14, color: group.headerColor),
+                          const SizedBox(width: 6),
+                          Text(
+                            group.label,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: group.headerColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${group.orders.length} order${group.orders.length == 1 ? '' : 's'}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              ...group.orders.map(
+                (o) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _CanteenOrderCard(order: o, isActive: true),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  List<_OrderGroup> _groupOrders(List<Order> orders) {
+    final now = DateTime.now();
+    final nowGroup = <Order>[];
+    final scheduledGroups = <String, List<Order>>{};
+
+    for (final order in orders) {
+      if (order.isScheduled && order.scheduledFor != null) {
+        // Round to nearest 30-minute slot
+        final sf = order.scheduledFor!;
+        final slotMinute = sf.minute < 30 ? 0 : 30;
+        final slot = DateTime(sf.year, sf.month, sf.day, sf.hour, slotMinute);
+        final label =
+            '${slot.hour.toString().padLeft(2, '0')}:${slot.minute.toString().padLeft(2, '0')}';
+        scheduledGroups.putIfAbsent(label, () => []).add(order);
+      } else {
+        nowGroup.add(order);
+      }
+    }
+
+    final groups = <_OrderGroup>[];
+
+    if (nowGroup.isNotEmpty) {
+      groups.add(_OrderGroup(
+        label: 'Prepare Now',
+        orders: nowGroup,
+        headerColor: AppColors.error,
+        headerIcon: Icons.flash_on_rounded,
+        sortKey: now,
+      ));
+    }
+
+    final sortedSlots = scheduledGroups.keys.toList()..sort();
+    for (final slot in sortedSlots) {
+      groups.add(_OrderGroup(
+        label: slot,
+        orders: scheduledGroups[slot]!,
+        headerColor: AppColors.primary,
+        headerIcon: Icons.schedule_rounded,
+        sortKey: DateTime.now(),
+      ));
+    }
+
+    return groups;
+  }
+}
+
+class _OrderGroup {
+  final String label;
+  final List<Order> orders;
+  final Color headerColor;
+  final IconData headerIcon;
+  final DateTime sortKey;
+
+  const _OrderGroup({
+    required this.label,
+    required this.orders,
+    required this.headerColor,
+    required this.headerIcon,
+    required this.sortKey,
+  });
+}
+
+// ─── Completed Orders List ───────────────────────────────────────────────
+
+class _CompletedOrderList extends StatelessWidget {
+  final List<Order> orders;
+  final Future<void> Function() onRefresh;
+  const _CompletedOrderList({required this.orders, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    if (orders.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: const SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 400,
+            child: EmptyState(
+              icon: Icons.check_circle_outline_rounded,
+              title: 'No completed orders',
+              subtitle: 'Verified orders appear here',
+            ),
+          ),
+        ),
       );
     }
 
     return RefreshIndicator(
-      onRefresh: () => Future.value(), // parent handles via provider
+      onRefresh: onRefresh,
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
         itemCount: orders.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (ctx, i) => _CanteenOrderCard(order: orders[i]),
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (ctx, i) =>
+            _CanteenOrderCard(order: orders[i], isActive: false),
       ),
     );
   }
 }
 
-class _CanteenOrderCard extends ConsumerWidget {
+// ─── Order Card ──────────────────────────────────────────────────────────
+
+class _CanteenOrderCard extends StatelessWidget {
   final Order order;
-  const _CanteenOrderCard({required this.order});
+  final bool isActive;
+  const _CanteenOrderCard({required this.order, required this.isActive});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header row: token, name, status
           Row(
             children: [
               Container(
@@ -248,39 +418,51 @@ class _CanteenOrderCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(order.studentName,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 14)),
-                    Text(order.studentDept,
-                        style: theme.textTheme.bodySmall),
+                    Text(
+                      order.studentName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
                   ],
                 ),
               ),
               StatusChip(status: order.status),
             ],
           ),
+
           const Divider(height: 16),
 
-          // Time
+          // Time + ETA
           Row(
             children: [
               Icon(Icons.access_time_rounded,
-                  size: 14,
-                  color: theme.colorScheme.onSurfaceVariant),
+                  size: 14, color: theme.colorScheme.onSurfaceVariant),
               const SizedBox(width: 4),
               Text(AppUtils.formatDateTime(order.placedAt),
                   style: theme.textTheme.bodySmall),
               if (order.isScheduled && order.scheduledFor != null) ...[
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 const Icon(Icons.schedule_rounded,
                     size: 14, color: Color(0xFF00838F)),
                 const SizedBox(width: 2),
                 Text(
-                  'Sched. ${AppUtils.formatTimeShort(order.scheduledFor!)}',
+                  'Pickup ${AppUtils.formatTimeShort(order.scheduledFor!)}',
                   style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF00838F)),
+                ),
+              ] else if (order.estimatedReadyAt != null) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.timer_outlined,
+                    size: 14, color: Color(0xFFFF9800)),
+                const SizedBox(width: 2),
+                Text(
+                  order.etaLabel ?? '',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFFF9800)),
                 ),
               ],
             ],
@@ -292,12 +474,12 @@ class _CanteenOrderCard extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(
                   children: [
-                    Text(item.emoji,
-                        style: const TextStyle(fontSize: 14)),
+                    Text(item.emoji, style: const TextStyle(fontSize: 14)),
                     const SizedBox(width: 6),
                     Expanded(
-                        child: Text('${item.name} x${item.quantity}',
-                            style: theme.textTheme.bodyMedium)),
+                      child: Text('${item.name} x${item.quantity}',
+                          style: theme.textTheme.bodyMedium),
+                    ),
                     Text('Rs. ${item.lineTotal.toInt()}',
                         style: const TextStyle(
                             fontWeight: FontWeight.w600, fontSize: 13)),
@@ -306,11 +488,11 @@ class _CanteenOrderCard extends ConsumerWidget {
               )),
 
           const Divider(height: 16),
+
           Row(
             children: [
               const Text('Total',
-                  style:
-                      TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
@@ -322,55 +504,53 @@ class _CanteenOrderCard extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          _StatusActionBtn(order: order),
+
+          // CTA: active orders show a "Verify to complete" hint — no standalone complete button
+          if (isActive) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: AppColors.info.withValues(alpha: 0.25)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.qr_code_scanner_rounded,
+                      size: 16, color: AppColors.info),
+                  SizedBox(width: 8),
+                  Text(
+                    'Go to Verify tab to complete via QR scan',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.info,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              alignment: Alignment.center,
+              child: const Text(
+                '✓ Collected & Completed',
+                style: TextStyle(
+                  color: AppColors.success,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
-    );
-  }
-}
-
-class _StatusActionBtn extends ConsumerWidget {
-  final Order order;
-  const _StatusActionBtn({required this.order});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (order.status == 'Collected') {
-      return Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(
-          'Completed',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    }
-
-    final (label, icon, nextStatus) = switch (order.status) {
-      'Preparing' ||
-      'Verified' =>
-        ('Mark as Collected', Icons.check_circle_rounded, 'completed'),
-      _ => ('Mark as Collected', Icons.check_circle_rounded, 'completed'),
-    };
-
-    return AppButton(
-      label: label,
-      icon: icon,
-      onTap: () async {
-        await ref
-            .read(canteenOrdersProvider.notifier)
-            .updateStatus(order.id, nextStatus);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Order #${order.token} marked as collected')),
-          );
-        }
-      },
     );
   }
 }

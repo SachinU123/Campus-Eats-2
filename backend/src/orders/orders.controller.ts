@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -69,24 +70,28 @@ export class OrderController {
 export class CanteenOrderController {
   constructor(private readonly orderService: OrderService) {}
 
+  // GET /canteen/orders?status=paid  — fetch paid/completed orders
   @Get()
   async getCanteenOrders(@Query('status') status?: string) {
     const orders = await this.orderService.getCanteenOrders(status);
     return ApiResponse.ok(orders, 'Canteen orders retrieved');
   }
 
+  // GET /canteen/orders/:id
   @Get(':id')
   async getOrderById(@Param('id') id: string) {
     const order = await this.orderService.getOrderById(id);
     return ApiResponse.ok(order, 'Order retrieved');
   }
 
+  // GET /canteen/orders/:id/slip
   @Get(':id/slip')
   async getSlip(@Param('id') id: string) {
     const slip = await this.orderService.getSlip(id);
     return ApiResponse.ok(slip, 'Slip retrieved');
   }
 
+  // PATCH /canteen/orders/:id/complete — transition status (paid → completed | cancelled)
   @Patch(':id/complete')
   async completeOrder(
     @Param('id') id: string,
@@ -94,5 +99,28 @@ export class CanteenOrderController {
   ) {
     const order = await this.orderService.updateOrderStatus(id, dto);
     return ApiResponse.ok(order, `Order status updated to ${dto.status}`);
+  }
+}
+
+// ─── Canteen Reports + History Controller ──────────────────
+
+@Controller('canteen')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('canteen')
+export class CanteenReportsController {
+  constructor(private readonly orderService: OrderService) {}
+
+  // GET /canteen/reports — real aggregated report data
+  @Get('reports')
+  async getReports() {
+    const data = await this.orderService.getCanteenReports();
+    return ApiResponse.ok(data, 'Reports retrieved');
+  }
+
+  // DELETE /canteen/history/completed — clear completed orders only
+  @Delete('history/completed')
+  async clearCompletedHistory(@CurrentUser('sub') canteenUserId: string) {
+    const result = await this.orderService.clearCompletedHistory(canteenUserId);
+    return ApiResponse.ok(result, `Cleared ${result.cleared} completed orders`);
   }
 }

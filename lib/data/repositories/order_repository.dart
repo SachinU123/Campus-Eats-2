@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:campus_eats_ag/data/api/api_client.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
@@ -23,9 +24,14 @@ class OrderRepository {
       for (final item in result.data as List) {
         try {
           _orders.add(_parseOrder(item as Map<String, dynamic>));
-        } catch (_) {}
+        } catch (e) {
+          dev.log('[ORDER] parse error: $e', name: 'OrderRepo');
+        }
       }
       _orders.sort((a, b) => b.placedAt.compareTo(a.placedAt));
+      dev.log('[ORDER] Loaded ${_orders.length} orders', name: 'OrderRepo');
+    } else {
+      dev.log('[ORDER] load failed: ${result.message}', name: 'OrderRepo');
     }
   }
 
@@ -38,12 +44,16 @@ class OrderRepository {
   Future<Order> createOrder({
     required List<Map<String, dynamic>> items,
     String? notes,
+    DateTime? scheduledFor,
   }) async {
-    final result = await _api.post('/orders', body: {
+    final body = <String, dynamic>{
       'items': items,
-      // ignore: use_null_aware_elements
-      if (notes != null) 'notes': notes,
-    });
+      'notes': ?notes,
+      if (scheduledFor != null)
+        'scheduledFor': scheduledFor.toUtc().toIso8601String(),
+    };
+
+    final result = await _api.post('/orders', body: body);
 
     if (!result.isSuccess) {
       throw Exception(result.message);
@@ -82,6 +92,27 @@ class OrderRepository {
     return (result.data as List)
         .map((e) => _parseOrder(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Fetch real report data from the backend.
+  Future<Map<String, dynamic>?> getReports() async {
+    final result = await _api.get('/canteen/reports');
+    if (!result.isSuccess) {
+      dev.log('[REPORTS] fetch failed: ${result.message}', name: 'OrderRepo');
+      return null;
+    }
+    dev.log('[REPORTS] fetch OK', name: 'OrderRepo');
+    return result.data as Map<String, dynamic>?;
+  }
+
+  /// Clear all completed orders (canteen only).
+  Future<int> clearCompletedHistory() async {
+    final result = await _api.delete('/canteen/history/completed');
+    if (!result.isSuccess) {
+      throw Exception(result.message);
+    }
+    final data = result.data as Map<String, dynamic>?;
+    return (data?['cleared'] as int?) ?? 0;
   }
 
   Future<void> updateStatus(String orderId, String newStatus) async {
@@ -137,6 +168,15 @@ class OrderRepository {
     final id = data['id'] as String;
     final studentData = data['student'] as Map<String, dynamic>?;
 
+    // Parse schedule / ETA fields
+    final scheduledForStr = data['scheduledFor'] as String?;
+    final estimatedReadyAtStr = data['estimatedReadyAt'] as String?;
+    final scheduledFor =
+        scheduledForStr != null ? DateTime.tryParse(scheduledForStr) : null;
+    final estimatedReadyAt = estimatedReadyAtStr != null
+        ? DateTime.tryParse(estimatedReadyAtStr)
+        : null;
+
     return Order(
       id: id,
       token: token,
@@ -147,6 +187,9 @@ class OrderRepository {
       total: (data['total'] as num?)?.toDouble() ?? 0,
       paymentMethod: data['paymentMethod'] as String? ?? 'razorpay',
       status: _mapStatus(data['status'] as String? ?? 'created'),
+      isScheduled: scheduledFor != null,
+      scheduledFor: scheduledFor,
+      estimatedReadyAt: estimatedReadyAt,
       placedAt: DateTime.tryParse(data['orderedAt'] as String? ?? '') ??
           DateTime.now(),
       qrContent: 'ORDER_CE-${token}_TOKEN_$token',
@@ -220,7 +263,6 @@ class OrderNotifier extends Notifier<List<Order>> {
     required String paymentMethod,
     DateTime? scheduledFor,
   }) async {
-    // Create order via API (total calculated server-side)
     final orderItems = items
         .map((i) => {
               'menuItemId': i.menuItemId,
@@ -228,7 +270,10 @@ class OrderNotifier extends Notifier<List<Order>> {
             })
         .toList();
 
-    final order = await _repo.createOrder(items: orderItems);
+    final order = await _repo.createOrder(
+      items: orderItems,
+      scheduledFor: scheduledFor,
+    );
     state = List.from(_repo.allOrders);
     return order;
   }

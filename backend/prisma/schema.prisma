@@ -103,18 +103,19 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id          String   @id @default(uuid())
-  categoryId  String
-  name        String
-  description String   @default("")
-  imageUrl    String   @default("")
-  emoji       String   @default("")
-  price       Float
-  isVeg       Boolean  @default(true)
-  isPopular   Boolean  @default(false)
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  categoryId      String
+  name            String
+  description     String   @default("")
+  imageUrl        String   @default("")
+  emoji           String   @default("")
+  price           Float
+  isVeg           Boolean  @default(true)
+  isPopular       Boolean  @default(false)
+  isAvailable     Boolean  @default(true)
+  prepTimeMinutes Int      @default(5) // Base preparation time in minutes
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   category   MenuCategory @relation(fields: [categoryId], references: [id])
   orderItems OrderItem[]
@@ -128,19 +129,21 @@ model MenuItem {
 // ──────────────────────────────────────────────
 
 model Order {
-  id            String    @id @default(uuid())
-  studentId     String
-  tokenNumber   String    @unique
-  status        String    @default("created") // created, payment_pending, paid, completed, cancelled
-  subtotal      Float
-  total         Float
-  paymentStatus String    @default("pending") // pending, paid, failed, refunded
-  paymentMethod String?   // razorpay, upi, etc.
-  notes         String?
-  orderedAt     DateTime  @default(now())
-  completedAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  studentId        String
+  tokenNumber      String    @unique
+  status           String    @default("created") // created, payment_pending, paid, completed, cancelled
+  subtotal         Float
+  total            Float
+  paymentStatus    String    @default("pending") // pending, paid, failed, refunded
+  paymentMethod    String?   // razorpay, upi, etc.
+  notes            String?
+  scheduledFor     DateTime? // null = immediate order; set = scheduled pickup time
+  estimatedReadyAt DateTime? // computed ETA for immediate orders
+  orderedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   student            Student             @relation(fields: [studentId], references: [id])
   items              OrderItem[]
@@ -150,6 +153,7 @@ model Order {
   @@index([studentId])
   @@index([status])
   @@index([orderedAt])
+  @@index([scheduledFor])
   @@map("orders")
 }
 

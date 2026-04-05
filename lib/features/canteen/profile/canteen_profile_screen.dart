@@ -5,6 +5,7 @@ import 'package:campus_eats_ag/core/constants/app_constants.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
+import 'package:campus_eats_ag/data/repositories/order_repository.dart';
 import 'package:campus_eats_ag/data/repositories/theme_repository.dart';
 
 class CanteenProfileScreen extends ConsumerWidget {
@@ -211,6 +212,13 @@ class CanteenProfileScreen extends ConsumerWidget {
               child: Column(
                 children: [
                   _ActionRow(
+                    icon: Icons.delete_sweep_outlined,
+                    label: 'Clear Completed History',
+                    color: AppColors.warning,
+                    onTap: () => _confirmClearHistory(context, ref),
+                  ),
+                  const Divider(height: 8),
+                  _ActionRow(
                     icon: Icons.help_outline_rounded,
                     label: 'Help & Support',
                     onTap: () {
@@ -252,6 +260,52 @@ class CanteenProfileScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _confirmClearHistory(
+      BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear Completed History'),
+        content: const Text(
+          'This will permanently delete all completed orders from the system.\n\n'
+          'Active, paid, scheduled, and in-progress orders are NOT affected.\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => ctx.pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => ctx.pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Clear History'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      try {
+        final repo = ref.read(orderRepositoryProvider);
+        final count = await repo.clearCompletedHistory();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Cleared $count completed order${count == 1 ? '' : 's'}'),
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed: $e')),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {

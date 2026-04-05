@@ -17,31 +17,47 @@ class AuthRepository {
   bool get isLoggedIn => _currentUser != null;
 
   /// Initialize: restore session from local storage and validate token.
+  /// On any failure, silently clears session so the user is prompted to log in again.
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     final accessToken = prefs.getString('access_token');
     final refreshToken = prefs.getString('refresh_token');
     final userJson = prefs.getString('current_user');
 
-    if (accessToken != null && refreshToken != null && userJson != null) {
-      _api.setTokens(access: accessToken, refresh: refreshToken);
-      try {
-        final map = jsonDecode(userJson) as Map<String, dynamic>;
-        _currentUser = UserProfile.fromMap(map);
-      } catch (_) {
-        _currentUser = null;
-      }
+    // Nothing stored — fresh install / already logged out
+    if (accessToken == null || refreshToken == null || userJson == null) {
+      return;
+    }
 
-      // Validate token by calling /auth/me
-      final result = await _api.get('/auth/me');
-      if (!result.isSuccess) {
-        // Try refreshing
-        final refreshed = await _refreshTokens();
-        if (!refreshed) {
-          await _clearSession();
-        }
+    // Restore tokens in memory
+    _api.setTokens(access: accessToken, refresh: refreshToken);
+
+    // Restore user object
+    try {
+      final map = jsonDecode(userJson) as Map<String, dynamic>;
+      _currentUser = UserProfile.fromMap(map);
+    } catch (_) {
+      await _clearSession();
+      return;
+    }
+
+    // Validate with /auth/me — one attempt only, no noisy retry storm
+    final result = await _api.get('/auth/me');
+    if (result.isSuccess) {
+      // Token is valid — session restored
+      return;
+    }
+
+    // Access token expired → try refresh once
+    if (result.statusCode == 401) {
+      final refreshed = await _refreshTokens();
+      if (refreshed) {
+        return; // Refresh succeeded — session restored
       }
     }
+
+    // Both checks failed — clear stale session silently
+    await _clearSession();
   }
 
   /// Student registration.
@@ -121,7 +137,7 @@ class AuthRepository {
     });
 
     if (!result.isSuccess) {
-      throw Exception(result.message ?? 'Invalid OTP');
+      throw Exception(result.message);
     }
 
     final data = result.data as Map<String, dynamic>;

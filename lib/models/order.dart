@@ -1,19 +1,20 @@
 import 'order_item.dart';
 
 class Order {
-  final String id; // e.g. CE-4892
-  final String token; // e.g. 4892
+  final String id;
+  final String token;
   final String studentId;
   final String studentName;
   final String studentDept;
   final List<OrderItem> items;
   final double total;
   final String paymentMethod;
-  final String status; // Preparing / Ready / Verified / Collected
+  final String status; // Preparing / Verified / Collected / Cancelled
   final bool isScheduled;
   final DateTime? scheduledFor;
+  final DateTime? estimatedReadyAt; // ETA for immediate orders (null = unknown)
   final DateTime placedAt;
-  final String qrContent; // ORDER_CE-4892_TOKEN_4892
+  final String qrContent; // ORDER_CE-TOKEN_XXXX
 
   const Order({
     required this.id,
@@ -29,6 +30,7 @@ class Order {
     required this.qrContent,
     this.isScheduled = false,
     this.scheduledFor,
+    this.estimatedReadyAt,
   });
 
   Order copyWith({
@@ -43,6 +45,7 @@ class Order {
     String? status,
     bool? isScheduled,
     DateTime? scheduledFor,
+    DateTime? estimatedReadyAt,
     DateTime? placedAt,
     String? qrContent,
   }) {
@@ -58,13 +61,35 @@ class Order {
       status: status ?? this.status,
       isScheduled: isScheduled ?? this.isScheduled,
       scheduledFor: scheduledFor ?? this.scheduledFor,
+      estimatedReadyAt: estimatedReadyAt ?? this.estimatedReadyAt,
       placedAt: placedAt ?? this.placedAt,
       qrContent: qrContent ?? this.qrContent,
     );
   }
 
   bool get isCompleted => status == 'Collected';
-  bool get isActive => !isCompleted;
+  bool get isActive => !isCompleted && status != 'Cancelled';
+  bool get isCancelled => status == 'Cancelled';
+
+  /// Returns a human-readable time label for the order.
+  /// - Scheduled orders: "Scheduled for HH:MM"
+  /// - Immediate orders with ETA: "Ready ~HH:MM"
+  /// - No info: null
+  String? get etaLabel {
+    if (isScheduled && scheduledFor != null) {
+      final t = scheduledFor!;
+      final h = t.hour.toString().padLeft(2, '0');
+      final m = t.minute.toString().padLeft(2, '0');
+      return 'Pickup at $h:$m';
+    }
+    if (estimatedReadyAt != null) {
+      final t = estimatedReadyAt!;
+      final h = t.hour.toString().padLeft(2, '0');
+      final m = t.minute.toString().padLeft(2, '0');
+      return 'Ready ~$h:$m';
+    }
+    return null;
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -79,6 +104,7 @@ class Order {
       'status': status,
       'isScheduled': isScheduled,
       'scheduledFor': scheduledFor?.toIso8601String(),
+      'estimatedReadyAt': estimatedReadyAt?.toIso8601String(),
       'placedAt': placedAt.toIso8601String(),
       'qrContent': qrContent,
     };
@@ -100,6 +126,9 @@ class Order {
       isScheduled: map['isScheduled'] as bool? ?? false,
       scheduledFor: map['scheduledFor'] != null
           ? DateTime.parse(map['scheduledFor'] as String)
+          : null,
+      estimatedReadyAt: map['estimatedReadyAt'] != null
+          ? DateTime.parse(map['estimatedReadyAt'] as String)
           : null,
       placedAt: DateTime.parse(map['placedAt'] as String),
       qrContent: map['qrContent'] as String,

@@ -33,22 +33,26 @@ class AppUtils {
 
   static List<DateTime> generateScheduleSlots() {
     final now = DateTime.now();
-    final maxTime = now.add(const Duration(minutes: 150));
+
+    // Earliest allowed pickup = now + 30 minutes (minimum lead time).
+    // We snap this forward to the next 30-minute wall-clock bucket so that
+    // every visible slot is always >= 30 min away from the current time.
+    final earliest = now.add(const Duration(minutes: 30));
+
+    // Strip seconds/milliseconds, then round UP to the next 30-min mark.
+    final base = DateTime(earliest.year, earliest.month, earliest.day,
+        earliest.hour, earliest.minute);
+    final remainder = base.minute % 30;
+    final firstSlot = remainder == 0
+        ? base // already on a 30-min boundary
+        : base.add(Duration(minutes: 30 - remainder));
+
+    // Maximum pickup = now + 2 hours (120 minutes).
+    final maxTime = now.add(const Duration(minutes: 120));
+
     final slots = <DateTime>[];
-
-    // Round up to next 30-minute mark
-    int minutesToAdd = 30 - (now.minute % 30);
-    if (minutesToAdd == 0) minutesToAdd = 30;
-
-    DateTime slot = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute,
-    ).add(Duration(minutes: minutesToAdd));
-
-    while (slot.isBefore(maxTime) || slot.isAtSameMomentAs(maxTime)) {
+    DateTime slot = firstSlot;
+    while (!slot.isAfter(maxTime)) {
       slots.add(slot);
       slot = slot.add(const Duration(minutes: 30));
     }
