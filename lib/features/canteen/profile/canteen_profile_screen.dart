@@ -269,9 +269,11 @@ class CanteenProfileScreen extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('Clear Completed History'),
         content: const Text(
-          'This will permanently delete all completed orders from the system.\n\n'
-          'Active, paid, scheduled, and in-progress orders are NOT affected.\n\n'
-          'This action cannot be undone.',
+          'This will hide all completed orders from your canteen view.\n\n'
+          'Orders, payment records, and reports are NOT deleted — '
+          'they remain safely in the system.\n\n'
+          'Student order history is also unaffected.\n\n'
+          'Active, paid, and scheduled orders are NOT affected.',
         ),
         actions: [
           TextButton(
@@ -280,8 +282,8 @@ class CanteenProfileScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () => ctx.pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Clear History'),
+            style: TextButton.styleFrom(foregroundColor: AppColors.warning),
+            child: const Text('Clear from View'),
           ),
         ],
       ),

@@ -140,10 +140,11 @@ model Order {
   notes            String?
   scheduledFor     DateTime? // null = immediate order; set = scheduled pickup time
   estimatedReadyAt DateTime? // computed ETA for immediate orders
-  orderedAt        DateTime  @default(now())
-  completedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  orderedAt             DateTime  @default(now())
+  completedAt           DateTime?
+  hiddenFromCanteenAt   DateTime? // set by "Clear History"; hides from canteen view only
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   student            Student             @relation(fields: [studentId], references: [id])
   items              OrderItem[]

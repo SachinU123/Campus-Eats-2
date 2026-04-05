@@ -376,7 +376,7 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Choose a slot within the next 2.5 hours',
+              'Choose a slot at least 30 min ahead, up to 2 hours from now',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),

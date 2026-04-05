@@ -89,16 +89,17 @@ export class OrderService {
       );
       const buffer = 5; // standard kitchen buffer
 
-      // Rush hour: 11:00 AM – 2:00 PM adds +10 minutes
+      // Rush hour: 11:00 AM – 2:00 PM IST (UTC+5:30) — use campus-local hour
       const now = new Date();
-      const hour = now.getHours();
-      const rushExtra = hour >= 11 && hour < 14 ? 10 : 0;
+      const istOffsetMs = 5.5 * 60 * 60 * 1000; // IST = UTC+5:30
+      const istHour = new Date(now.getTime() + istOffsetMs).getUTCHours();
+      const rushExtra = istHour >= 11 && istHour < 14 ? 10 : 0;
 
       const totalMinutes = maxPrepMinutes + buffer + rushExtra;
       estimatedReadyAt = new Date(now.getTime() + totalMinutes * 60_000);
 
       this.logger.log(
-        `[ETA] Computed: maxPrep=${maxPrepMinutes}min buffer=${buffer}min rush=${rushExtra}min → ready at ${estimatedReadyAt.toISOString()}`,
+        `[ETA] Computed: maxPrep=${maxPrepMinutes}min buffer=${buffer}min istHour=${istHour} rush=${rushExtra}min → ready at ${estimatedReadyAt.toISOString()}`,
       );
     }
 
@@ -162,14 +163,17 @@ export class OrderService {
   // ─── Canteen: Get All Paid Orders ──────────────────────────
 
   async getCanteenOrders(status?: string) {
-    const where: any = {};
+    const where: any = {
+      // Never show soft-archived orders in the canteen live view
+      hiddenFromCanteenAt: null,
+    };
     if (status) {
       where.status = status;
       this.logger.log(`[CANTEEN] getCanteenOrders with filter status=${status}`);
     } else {
       // Default: show paid and completed orders only
       where.status = { in: ['paid', 'completed'] };
-      this.logger.log(`[CANTEEN] getCanteenOrders default filter: paid + completed`);
+      this.logger.log(`[CANTEEN] getCanteenOrders default filter: paid + completed (non-archived)`);
     }
 
     return this.prisma.order.findMany({
@@ -190,17 +194,38 @@ export class OrderService {
   async getCanteenReports() {
     const now = new Date();
 
-    // Today boundaries (midnight to midnight)
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
+    // ── Use IST (UTC+5:30) boundaries so "today" and "this month" are
+    //    campus-local, not server-UTC boundaries. ─────────────────────
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIst = new Date(now.getTime() + IST_OFFSET_MS);
 
-    // This month boundaries
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    // IST midnight for today (UTC)
+    const istMidnightUTC = new Date(
+      Date.UTC(
+        nowIst.getUTCFullYear(),
+        nowIst.getUTCMonth(),
+        nowIst.getUTCDate(),
+      ) - IST_OFFSET_MS,
+    );
+    const todayStart = istMidnightUTC;
+    const todayEnd = new Date(istMidnightUTC.getTime() + 86_400_000 - 1); // +24h-1ms
+
+    // IST month boundaries
+    const monthStartIstMs = Date.UTC(
+      nowIst.getUTCFullYear(),
+      nowIst.getUTCMonth(),
+      1,
+    );
+    const monthEndIstMs = Date.UTC(
+      nowIst.getUTCFullYear(),
+      nowIst.getUTCMonth() + 1,
+      1,
+    ) - 1;
+    const monthStart = new Date(monthStartIstMs - IST_OFFSET_MS);
+    const monthEnd = new Date(monthEndIstMs - IST_OFFSET_MS);
 
     // Paid statuses only (completed orders = real revenue)
+    // Reports are NOT filtered by hiddenFromCanteenAt — archive is UI-only.
     const paidStatuses = ['paid', 'completed'];
 
     // Today stats
@@ -225,7 +250,7 @@ export class OrderService {
 
     const monthRevenue = monthOrders.reduce((s, o) => s + o.total, 0);
 
-    // Top items (across all time)
+    // Top items (across all time) — not filtered by archive
     const allOrderItems = await this.prisma.orderItem.groupBy({
       by: ['itemNameSnapshot'],
       _sum: { quantity: true },
@@ -233,15 +258,15 @@ export class OrderService {
       take: 5,
     });
 
-    // Average daily orders (this month)
-    const daysPassed = now.getDate();
+    // Average daily orders (this month) — use IST day-of-month
+    const daysPassed = nowIst.getUTCDate();
     const avgDailyOrders =
       daysPassed > 0
         ? Math.round((monthOrders.length / daysPassed) * 10) / 10
         : 0;
 
     this.logger.log(
-      `[REPORTS] today=${todayOrders.length} orders Rs.${todayRevenue} | month=${monthOrders.length} orders Rs.${monthRevenue}`,
+      `[REPORTS] IST date=${nowIst.toUTCString()} today=${todayOrders.length} Rs.${todayRevenue} | month=${monthOrders.length} Rs.${monthRevenue}`,
     );
 
     return {
@@ -265,15 +290,25 @@ export class OrderService {
 
   async clearCompletedHistory(canteenUserId: string) {
     this.logger.log(
-      `[CANTEEN] clearCompletedHistory requested by canteen user: ${canteenUserId}`,
+      `[CANTEEN] clearCompletedHistory (soft-archive) requested by canteen user: ${canteenUserId}`,
     );
 
-    // Only delete orders in 'completed' status — NEVER active orders
-    const result = await this.prisma.order.deleteMany({
-      where: { status: 'completed' },
+    // SOFT CLEAR — never delete orders or payment records.
+    // Sets hiddenFromCanteenAt on completed orders that are not already hidden.
+    // Reports, student history, and payment records are completely unaffected.
+    const result = await this.prisma.order.updateMany({
+      where: {
+        status: 'completed',
+        hiddenFromCanteenAt: null, // only touch orders not yet archived
+      },
+      data: {
+        hiddenFromCanteenAt: new Date(),
+      },
     });
 
-    this.logger.log(`[CANTEEN] Cleared ${result.count} completed orders`);
+    this.logger.log(
+      `[CANTEEN] Soft-archived ${result.count} completed orders (hiddenFromCanteenAt set)`,
+    );
     return { cleared: result.count };
   }
 

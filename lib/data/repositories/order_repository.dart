@@ -168,14 +168,20 @@ class OrderRepository {
     final id = data['id'] as String;
     final studentData = data['student'] as Map<String, dynamic>?;
 
-    // Parse schedule / ETA fields
+    // Parse schedule / ETA fields — backend sends UTC ISO strings.
+    // Call .toLocal() explicitly so all DateTime values are in device-local
+    // time (IST on campus devices), not UTC.
     final scheduledForStr = data['scheduledFor'] as String?;
     final estimatedReadyAtStr = data['estimatedReadyAt'] as String?;
-    final scheduledFor =
-        scheduledForStr != null ? DateTime.tryParse(scheduledForStr) : null;
-    final estimatedReadyAt = estimatedReadyAtStr != null
-        ? DateTime.tryParse(estimatedReadyAtStr)
+    final scheduledFor = scheduledForStr != null
+        ? DateTime.tryParse(scheduledForStr)?.toLocal()
         : null;
+    final estimatedReadyAt = estimatedReadyAtStr != null
+        ? DateTime.tryParse(estimatedReadyAtStr)?.toLocal()
+        : null;
+    final placedAt =
+        (DateTime.tryParse(data['orderedAt'] as String? ?? '') ?? DateTime.now())
+            .toLocal();
 
     return Order(
       id: id,
@@ -190,8 +196,7 @@ class OrderRepository {
       isScheduled: scheduledFor != null,
       scheduledFor: scheduledFor,
       estimatedReadyAt: estimatedReadyAt,
-      placedAt: DateTime.tryParse(data['orderedAt'] as String? ?? '') ??
-          DateTime.now(),
+      placedAt: placedAt,
       qrContent: 'ORDER_CE-${token}_TOKEN_$token',
     );
   }

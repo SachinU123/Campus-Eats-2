@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'order_item.dart';
 
 class Order {
@@ -72,21 +73,16 @@ class Order {
   bool get isCancelled => status == 'Cancelled';
 
   /// Returns a human-readable time label for the order.
-  /// - Scheduled orders: "Scheduled for HH:MM"
-  /// - Immediate orders with ETA: "Ready ~HH:MM"
+  /// - Scheduled orders: "Pickup at h:mm a" (e.g. "Pickup at 11:30 AM")
+  /// - Immediate orders with ETA: "Ready by h:mm a" (e.g. "Ready by 11:06 PM")
   /// - No info: null
   String? get etaLabel {
+    final fmt = DateFormat('h:mm a'); // 12-hour local time, no leading zero
     if (isScheduled && scheduledFor != null) {
-      final t = scheduledFor!;
-      final h = t.hour.toString().padLeft(2, '0');
-      final m = t.minute.toString().padLeft(2, '0');
-      return 'Pickup at $h:$m';
+      return 'Pickup at ${fmt.format(scheduledFor!)}';
     }
     if (estimatedReadyAt != null) {
-      final t = estimatedReadyAt!;
-      final h = t.hour.toString().padLeft(2, '0');
-      final m = t.minute.toString().padLeft(2, '0');
-      return 'Ready ~$h:$m';
+      return 'Ready by ${fmt.format(estimatedReadyAt!)}';
     }
     return null;
   }

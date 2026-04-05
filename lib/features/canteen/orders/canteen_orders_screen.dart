@@ -283,12 +283,18 @@ class _ActiveOrderList extends StatelessWidget {
 
     for (final order in orders) {
       if (order.isScheduled && order.scheduledFor != null) {
-        // Round to nearest 30-minute slot
+        // Round to nearest 30-minute slot for grouping key.
+        // scheduledFor is already .toLocal() — so hour/minute are IST-correct.
         final sf = order.scheduledFor!;
         final slotMinute = sf.minute < 30 ? 0 : 30;
         final slot = DateTime(sf.year, sf.month, sf.day, sf.hour, slotMinute);
+        // Format as 12-hour label, e.g. "11:30 AM" or "12:00 PM"
+        final hour12 = slot.hour == 0
+            ? 12
+            : (slot.hour > 12 ? slot.hour - 12 : slot.hour);
+        final amPm = slot.hour < 12 ? 'AM' : 'PM';
         final label =
-            '${slot.hour.toString().padLeft(2, '0')}:${slot.minute.toString().padLeft(2, '0')}';
+            '${hour12.toString().padLeft(2, '0')}:${slot.minute.toString().padLeft(2, '0')} $amPm';
         scheduledGroups.putIfAbsent(label, () => []).add(order);
       } else {
         nowGroup.add(order);
