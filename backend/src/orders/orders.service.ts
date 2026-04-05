@@ -2,17 +2,21 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateOrderDto, UpdateOrderStatusDto } from './dto/order.dto.js';
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── Create Order ───────────────────────────────────────────
 
   async createOrder(studentId: string, dto: CreateOrderDto) {
+    this.logger.log(`[ORDER] createOrder for student: ${studentId}, items: ${JSON.stringify(dto.items)}`);
     // Validate and fetch menu items
     const menuItemIds = dto.items.map((item) => item.menuItemId);
     const menuItems = await this.prisma.menuItem.findMany({
@@ -108,9 +112,11 @@ export class OrderService {
     const where: any = {};
     if (status) {
       where.status = status;
+      this.logger.log(`[CANTEEN] getCanteenOrders with filter status=${status}`);
     } else {
-      // Default: show paid and completed orders
+      // Default: show paid and completed orders only
       where.status = { in: ['paid', 'completed'] };
+      this.logger.log(`[CANTEEN] getCanteenOrders default filter: paid + completed`);
     }
 
     return this.prisma.order.findMany({

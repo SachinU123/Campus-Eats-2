@@ -1,9 +1,25 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module.js';
+import type { Request, Response, NextFunction } from 'express';
+
+const httpLogger = new Logger('HTTP');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // ─── Request logging middleware (temporary debug — remove after stabilisation) ───
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const ms = Date.now() - start;
+      const level = res.statusCode >= 400 ? 'error' : 'log';
+      httpLogger[level](
+        `[${req.method}] ${req.url} → ${res.statusCode} (${ms}ms)`,
+      );
+    });
+    next();
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -26,6 +42,6 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
-  console.log(`\n🚀 CampusEats API running on http://localhost:${port}/api/v1\n`);
+  httpLogger.log(`\n🚀 CampusEats API running on http://localhost:${port}/api/v1\n`);
 }
 bootstrap();

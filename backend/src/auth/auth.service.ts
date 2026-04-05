@@ -3,10 +3,12 @@ import {
   ConflictException,
   UnauthorizedException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -19,6 +21,8 @@ import {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -28,10 +32,13 @@ export class AuthService {
   // ─── Student Registration ───────────────────────────────────
 
   async registerStudent(dto: StudentRegisterDto) {
+    this.logger.log(`[AUTH] Student register attempt: ${dto.email}`);
+
     const existing = await this.prisma.student.findUnique({
       where: { email: dto.email },
     });
     if (existing) {
+      this.logger.warn(`[AUTH] Register conflict: ${dto.email} already exists`);
       throw new ConflictException('Email already registered');
     }
 
@@ -54,6 +61,7 @@ export class AuthService {
     });
 
     await this.createSession(student.id, 'student', tokens.refreshToken);
+    this.logger.log(`[AUTH] Student registered successfully: ${student.id}`);
 
     return {
       user: this.sanitizeStudent(student),
@@ -64,15 +72,19 @@ export class AuthService {
   // ─── Student Login ──────────────────────────────────────────
 
   async loginStudent(dto: StudentLoginDto) {
+    this.logger.log(`[AUTH] Student login attempt: ${dto.email}`);
+
     const student = await this.prisma.student.findUnique({
       where: { email: dto.email },
     });
     if (!student || !student.isActive) {
+      this.logger.warn(`[AUTH] Login failed - not found or inactive: ${dto.email}`);
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const valid = await bcrypt.compare(dto.password, student.passwordHash);
     if (!valid) {
+      this.logger.warn(`[AUTH] Login failed - wrong password: ${dto.email}`);
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -84,6 +96,7 @@ export class AuthService {
     });
 
     await this.createSession(student.id, 'student', tokens.refreshToken);
+    this.logger.log(`[AUTH] Student login success: ${student.id}`);
 
     return {
       user: this.sanitizeStudent(student),
@@ -229,7 +242,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    const tokenHash = await this.hashToken(dto.refreshToken);
+    const tokenHash = this.hashToken(dto.refreshToken);
 
     const session = await this.prisma.refreshSession.findFirst({
       where: {
@@ -253,7 +266,7 @@ export class AuthService {
       ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
     });
 
-    const newTokenHash = await this.hashToken(newTokens.refreshToken);
+    const newTokenHash = this.hashToken(newTokens.refreshToken);
 
     await this.prisma.refreshSession.update({
       where: { id: session.id },
@@ -271,7 +284,7 @@ export class AuthService {
 
   async logout(refreshToken: string) {
     try {
-      const tokenHash = await this.hashToken(refreshToken);
+      const tokenHash = this.hashToken(refreshToken);
       await this.prisma.refreshSession.updateMany({
         where: { refreshTokenHash: tokenHash, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -336,7 +349,7 @@ export class AuthService {
     deviceId?: string,
     deviceName?: string,
   ) {
-    const tokenHash = await this.hashToken(refreshToken);
+    const tokenHash = this.hashToken(refreshToken);
 
     const sessionData: any = {
       userId,
@@ -356,8 +369,9 @@ export class AuthService {
     await this.prisma.refreshSession.create({ data: sessionData });
   }
 
-  private async hashToken(token: string): Promise<string> {
-    return bcrypt.hash(token.slice(-32), 4); // Lightweight hash of token tail
+  private hashToken(token: string): string {
+    // ⚠️ MUST be deterministic — bcrypt was wrong here (salted = non-deterministic = session lookup always fails)
+    return crypto.createHash('sha256').update(token).digest('hex');
   }
 
   private sanitizeStudent(student: any) {

@@ -1,10 +1,16 @@
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:campus_eats_ag/core/constants/api_config.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/cart_repository.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
+import 'package:campus_eats_ag/data/repositories/payment_repository.dart';
+import 'package:campus_eats_ag/models/order.dart';
 import 'package:campus_eats_ag/models/order_item.dart';
 
 class PaymentScreen extends ConsumerStatefulWidget {
@@ -18,9 +24,190 @@ class PaymentScreen extends ConsumerStatefulWidget {
 
 class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   bool _isLoading = false;
+  String? _errorMessage;
+  Razorpay? _razorpay;
 
-  // Only UPI is available
   static const String _method = 'UPI';
+
+  @override
+  void initState() {
+    super.initState();
+    _razorpay = Razorpay();
+    _razorpay!.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onPaymentSuccess);
+    _razorpay!.on(Razorpay.EVENT_PAYMENT_ERROR, _onPaymentError);
+    _razorpay!.on(Razorpay.EVENT_EXTERNAL_WALLET, _onExternalWallet);
+  }
+
+  @override
+  void dispose() {
+    _razorpay?.clear();
+    super.dispose();
+  }
+
+  // ─── Razorpay Callbacks ───────────────────────────────────────
+
+  void _onPaymentSuccess(PaymentSuccessResponse response) {
+    dev.log(
+      '[PAYMENT] Razorpay success: paymentId=${response.paymentId} '
+      'orderId=${response.orderId} signature=${response.signature != null ? "[sig]" : "null"}',
+      name: 'PaymentScreen',
+    );
+    _verifyAndFinalize(
+      razorpayOrderId: response.orderId!,
+      razorpayPaymentId: response.paymentId!,
+      razorpaySignature: response.signature!,
+    );
+  }
+
+  void _onPaymentError(PaymentFailureResponse response) {
+    dev.log(
+      '[PAYMENT] Razorpay error: code=${response.code} msg=${response.message}',
+      name: 'PaymentScreen',
+      level: 900,
+    );
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Payment failed: ${response.message ?? "Unknown error"}';
+      });
+    }
+  }
+
+  void _onExternalWallet(ExternalWalletResponse response) {
+    dev.log('[PAYMENT] External wallet: ${response.walletName}', name: 'PaymentScreen');
+  }
+
+  // ─── Main Payment Flow ────────────────────────────────────────
+  // Flow: placeOrder → createPaymentOrder → open Razorpay → verify → navigate
+
+  Future<void> _processPayment(
+    BuildContext context,
+    double total,
+    DateTime? scheduledFor,
+  ) async {
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    try {
+      // Step 1: Create the order on backend
+      final user = ref.read(authProvider);
+      final cartItems = ref.read(cartProvider);
+      final orderItems = cartItems.map(OrderItem.fromCartItem).toList();
+
+      dev.log('[PAYMENT] Step 1: Creating order...', name: 'PaymentScreen');
+
+      final order = await ref.read(orderProvider.notifier).placeOrder(
+            studentId: user?.id ?? '',
+            studentName: user?.name ?? 'Student',
+            studentDept: user?.department ?? '',
+            items: orderItems,
+            total: total,
+            paymentMethod: _method,
+            scheduledFor: scheduledFor,
+          );
+
+      dev.log('[PAYMENT] Step 1 OK: orderId=${order.id}', name: 'PaymentScreen');
+
+      // Step 2: Create Razorpay payment order on backend
+      dev.log('[PAYMENT] Step 2: Creating payment order...', name: 'PaymentScreen');
+      final paymentRepo = ref.read(paymentRepositoryProvider);
+      final paymentData = await paymentRepo.createPaymentOrder(order.id);
+
+      dev.log(
+        '[PAYMENT] Step 2 OK: razorpayOrderId=${paymentData['razorpayOrderId']} '
+        'amount=${paymentData['amount']}',
+        name: 'PaymentScreen',
+      );
+
+      // Step 3: Open Razorpay checkout
+      _openRazorpay(order: order, paymentData: paymentData);
+
+      // Note: setState is done in callbacks (_onPaymentSuccess / _onPaymentError)
+    } catch (e) {
+      dev.log('[PAYMENT] Error in payment flow: $e', name: 'PaymentScreen', level: 1000);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  void _openRazorpay({required Order order, required Map<String, dynamic> paymentData}) {
+    final options = {
+      'key': paymentData['keyId'] ?? ApiConfig.razorpayKeyId,
+      'amount': paymentData['amount'], // in paise
+      'currency': paymentData['currency'] ?? 'INR',
+      'order_id': paymentData['razorpayOrderId'],
+      'name': 'Campus Eats',
+      'description': 'Order #${order.token}',
+      'prefill': {
+        'contact': ref.read(authProvider)?.phone ?? '',
+        'email': ref.read(authProvider)?.email ?? '',
+      },
+      'theme': {'color': '#FF6B35'},
+    };
+
+    dev.log('[PAYMENT] Opening Razorpay with options: ${options.toString().replaceAll(RegExp(r'key: [^,}]+'), 'key: [hidden]')}', name: 'PaymentScreen');
+
+    try {
+      _razorpay!.open(options);
+    } on PlatformException catch (e) {
+      dev.log('[PAYMENT] PlatformException opening Razorpay: $e', name: 'PaymentScreen', level: 1000);
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Could not open payment: ${e.message}';
+      });
+    }
+  }
+
+  // Step 4: Verify payment with backend (called after Razorpay callback)
+  Future<void> _verifyAndFinalize({
+    required String razorpayOrderId,
+    required String razorpayPaymentId,
+    required String razorpaySignature,
+  }) async {
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    try {
+      // Find the pending order from the current order list
+      final orders = ref.read(orderProvider);
+      final Order? pendingOrder = orders.isNotEmpty ? orders.first : null;
+
+      if (pendingOrder == null) {
+        throw Exception('Could not find order to verify payment');
+      }
+
+      dev.log('[PAYMENT] Step 4: Verifying payment for orderId=${pendingOrder.id}', name: 'PaymentScreen');
+
+      final paymentRepo = ref.read(paymentRepositoryProvider);
+      await paymentRepo.verifyPayment(
+        orderId: pendingOrder.id,
+        razorpayOrderId: razorpayOrderId,
+        razorpayPaymentId: razorpayPaymentId,
+        razorpaySignature: razorpaySignature,
+      );
+
+      dev.log('[PAYMENT] Step 4 OK: payment verified, order is now PAID', name: 'PaymentScreen');
+
+      await ref.read(cartProvider.notifier).clear();
+      setState(() => _isLoading = false);
+
+      if (mounted) {
+        context.go('/student/success', extra: pendingOrder);
+      }
+    } catch (e) {
+      dev.log('[PAYMENT] Verify error: $e', name: 'PaymentScreen', level: 1000);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Payment verification failed: ${e.toString().replaceFirst("Exception: ", "")}';
+        });
+      }
+    }
+  }
+
+  // ─── Build ────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +280,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                           children: [
                             const Text('Total',
                                 style: TextStyle(
-                                    fontWeight: FontWeight.w700, fontSize: 16)),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16)),
                             const Spacer(),
                             Text(
                               'Rs. ${subtotal.toInt()}',
@@ -186,6 +374,32 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
                   const SizedBox(height: 16),
 
+                  if (_errorMessage != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded,
+                              size: 16, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 16),
+
                   // Security note
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -201,7 +415,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Payments are secure and encrypted',
+                            'Payments are secured via Razorpay',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -228,39 +442,5 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _processPayment(
-    BuildContext context,
-    double total,
-    DateTime? scheduledFor,
-  ) async {
-    setState(() => _isLoading = true);
-
-    // Simulate payment delay
-    await Future.delayed(const Duration(milliseconds: 1500));
-
-    if (!context.mounted) return;
-
-    final user = ref.read(authProvider);
-    final cartItems = ref.read(cartProvider);
-    final orderItems = cartItems.map(OrderItem.fromCartItem).toList();
-
-    final order = await ref.read(orderProvider.notifier).placeOrder(
-          studentId: user?.id ?? 'anon',
-          studentName: user?.name ?? 'Student',
-          studentDept: user?.department ?? '',
-          items: orderItems,
-          total: total,
-          paymentMethod: _method,
-          scheduledFor: scheduledFor,
-        );
-
-    await ref.read(cartProvider.notifier).clear();
-    setState(() => _isLoading = false);
-
-    if (context.mounted) {
-      context.go('/student/success', extra: order);
-    }
   }
 }

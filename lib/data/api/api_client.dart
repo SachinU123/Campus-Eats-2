@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 import 'package:campus_eats_ag/core/constants/api_config.dart';
 
@@ -33,49 +34,72 @@ class ApiClient {
     return headers;
   }
 
+  bool get _hasAuth => _accessToken != null;
+
   Uri _uri(String path) => Uri.parse('${ApiConfig.baseUrl}$path');
 
   // ─── HTTP Methods ──────────────────────────────────────────
 
   Future<ApiResult> get(String path) async {
+    _logRequest('GET', path);
     try {
       final response = await _client
           .get(_uri(path), headers: _headers)
           .timeout(ApiConfig.receiveTimeout);
-      return _handleResponse(response);
+      return _handleResponse('GET', path, response);
     } catch (e) {
+      _logError('GET', path, e);
       return ApiResult.failure(_errorMessage(e));
     }
   }
 
   Future<ApiResult> post(String path, {Map<String, dynamic>? body}) async {
+    _logRequest('POST', path, body: body);
     try {
       final response = await _client
           .post(_uri(path), headers: _headers, body: jsonEncode(body ?? {}))
           .timeout(ApiConfig.receiveTimeout);
-      return _handleResponse(response);
+      return _handleResponse('POST', path, response);
     } catch (e) {
+      _logError('POST', path, e);
       return ApiResult.failure(_errorMessage(e));
     }
   }
 
   Future<ApiResult> patch(String path, {Map<String, dynamic>? body}) async {
+    _logRequest('PATCH', path, body: body);
     try {
       final response = await _client
           .patch(_uri(path), headers: _headers, body: jsonEncode(body ?? {}))
           .timeout(ApiConfig.receiveTimeout);
-      return _handleResponse(response);
+      return _handleResponse('PATCH', path, response);
     } catch (e) {
+      _logError('PATCH', path, e);
       return ApiResult.failure(_errorMessage(e));
     }
   }
 
   // ─── Response Handler ──────────────────────────────────────
 
-  ApiResult _handleResponse(http.Response response) {
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+  ApiResult _handleResponse(String method, String path, http.Response response) {
+    // Try to parse JSON body
+    Map<String, dynamic>? body;
+    try {
+      body = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      dev.log(
+        '[API] [$method] $path → ${response.statusCode} (invalid JSON body)',
+        name: 'ApiClient',
+        level: 900,
+      );
+      return ApiResult.failure('Invalid server response', statusCode: response.statusCode);
+    }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      dev.log(
+        '[API] [$method] $path → ${response.statusCode} ✓',
+        name: 'ApiClient',
+      );
       return ApiResult.success(body['data'], body['message'] as String? ?? 'OK');
     }
 
@@ -87,7 +111,43 @@ class ApiClient {
         message = body['message'].toString();
       }
     }
+    dev.log(
+      '[API] [$method] $path → ${response.statusCode} ✗ $message',
+      name: 'ApiClient',
+      level: 900,
+    );
     return ApiResult.failure(message, statusCode: response.statusCode);
+  }
+
+  // ─── Debug Logging ─────────────────────────────────────────
+  // NOTE: These logs appear in flutter run console / DevTools.
+  // Remove or gate behind kDebugMode before production hardening.
+
+  void _logRequest(String method, String path, {Map<String, dynamic>? body}) {
+    final authState = _hasAuth ? 'Bearer [token]' : 'NO AUTH';
+    final bodyStr = body != null ? _sanitizeBody(body) : '(none)';
+    dev.log(
+      '[API] [$method] ${ApiConfig.baseUrl}$path | auth=$authState | body=$bodyStr',
+      name: 'ApiClient',
+    );
+  }
+
+  void _logError(String method, String path, dynamic error) {
+    dev.log(
+      '[API] [$method] $path EXCEPTION: $error',
+      name: 'ApiClient',
+      level: 1000,
+    );
+  }
+
+  /// Strips sensitive fields from logs.
+  String _sanitizeBody(Map<String, dynamic> body) {
+    final safe = Map<String, dynamic>.from(body);
+    if (safe.containsKey('password')) safe['password'] = '***';
+    if (safe.containsKey('otp')) safe['otp'] = '***';
+    if (safe.containsKey('refreshToken')) safe['refreshToken'] = '[token]';
+    if (safe.containsKey('razorpaySignature')) safe['razorpaySignature'] = '[sig]';
+    return safe.toString();
   }
 
   String _errorMessage(dynamic error) {
