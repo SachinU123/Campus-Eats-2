@@ -42,9 +42,9 @@ export declare class PaymentController {
                 status: string;
                 orderId: string;
                 razorpayPaymentId: string | null;
+                gateway: string;
                 razorpayOrderId: string | null;
                 razorpaySignature: string | null;
-                gateway: string;
                 amount: number;
                 currency: string;
                 paidAt: Date | null;
@@ -56,14 +56,18 @@ export declare class PaymentController {
             updatedAt: Date;
             studentId: string;
             notes: string | null;
+            scheduledFor: Date | null;
             status: string;
             tokenNumber: string;
             subtotal: number;
             total: number;
             paymentStatus: string;
             paymentMethod: string | null;
+            estimatedReadyAt: Date | null;
             orderedAt: Date;
             completedAt: Date | null;
+            printedAt: Date | null;
+            hiddenFromCanteenAt: Date | null;
         };
     }>>;
     getPayment(orderId: string): Promise<ApiResponse<{
@@ -73,9 +77,9 @@ export declare class PaymentController {
         status: string;
         orderId: string;
         razorpayPaymentId: string | null;
+        gateway: string;
         razorpayOrderId: string | null;
         razorpaySignature: string | null;
-        gateway: string;
         amount: number;
         currency: string;
         paidAt: Date | null;

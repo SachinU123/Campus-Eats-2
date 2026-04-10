@@ -30,6 +30,7 @@ __decorate([
 class CreateOrderDto {
     items;
     notes;
+    scheduledFor;
 }
 exports.CreateOrderDto = CreateOrderDto;
 __decorate([
@@ -43,6 +44,11 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateOrderDto.prototype, "notes", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], CreateOrderDto.prototype, "scheduledFor", void 0);
 class UpdateOrderStatusDto {
     status;
 }

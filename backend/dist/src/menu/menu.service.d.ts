@@ -34,6 +34,7 @@ export declare class MenuService {
         price: number;
         isVeg: boolean;
         isAvailable: boolean;
+        prepTimeMinutes: number;
     })[]>;
     getItemById(id: string): Promise<({
         category: {
@@ -58,6 +59,7 @@ export declare class MenuService {
         price: number;
         isVeg: boolean;
         isAvailable: boolean;
+        prepTimeMinutes: number;
     }) | null>;
     searchItems(query: string): Promise<({
         category: {
@@ -82,5 +84,6 @@ export declare class MenuService {
         price: number;
         isVeg: boolean;
         isAvailable: boolean;
+        prepTimeMinutes: number;
     })[]>;
 }

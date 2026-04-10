@@ -100,6 +100,13 @@ export class CanteenOrderController {
     const order = await this.orderService.updateOrderStatus(id, dto);
     return ApiResponse.ok(order, `Order status updated to ${dto.status}`);
   }
+
+  // PATCH /canteen/orders/:id/print — mark slip as printed (idempotent)
+  @Patch(':id/print')
+  async printOrder(@Param('id') id: string) {
+    const order = await this.orderService.printOrder(id);
+    return ApiResponse.ok(order, 'Order marked as printed');
+  }
 }
 
 // ─── Canteen Reports + History Controller ──────────────────

@@ -17,7 +17,7 @@ exports.OrdersModule = OrdersModule;
 exports.OrdersModule = OrdersModule = __decorate([
     (0, common_1.Module)({
         imports: [auth_module_js_1.AuthModule],
-        controllers: [orders_controller_js_1.OrderController, orders_controller_js_1.CanteenOrderController],
+        controllers: [orders_controller_js_1.OrderController, orders_controller_js_1.CanteenOrderController, orders_controller_js_1.CanteenReportsController],
         providers: [orders_service_js_1.OrderService],
         exports: [orders_service_js_1.OrderService],
     })

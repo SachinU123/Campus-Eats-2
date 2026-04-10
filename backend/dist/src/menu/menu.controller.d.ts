@@ -35,6 +35,7 @@ export declare class MenuController {
         price: number;
         isVeg: boolean;
         isAvailable: boolean;
+        prepTimeMinutes: number;
     })[]>>;
     getItemById(id: string): Promise<ApiResponse<any>>;
 }

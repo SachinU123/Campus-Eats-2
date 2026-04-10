@@ -142,6 +142,7 @@ model Order {
   estimatedReadyAt DateTime? // computed ETA for immediate orders
   orderedAt             DateTime  @default(now())
   completedAt           DateTime?
+  printedAt             DateTime? // set when canteen marks order slip as printed; doesn't affect status
   hiddenFromCanteenAt   DateTime? // set by "Clear History"; hides from canteen view only
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt

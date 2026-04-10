@@ -41,27 +41,32 @@ var __importStar = (this && this.__importStar) || (function () {
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var AuthService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const config_1 = require("@nestjs/config");
 const bcrypt = __importStar(require("bcrypt"));
+const crypto = __importStar(require("crypto"));
 const prisma_service_js_1 = require("../prisma/prisma.service.js");
-let AuthService = class AuthService {
+let AuthService = AuthService_1 = class AuthService {
     prisma;
     jwt;
     config;
+    logger = new common_1.Logger(AuthService_1.name);
     constructor(prisma, jwt, config) {
         this.prisma = prisma;
         this.jwt = jwt;
         this.config = config;
     }
     async registerStudent(dto) {
+        this.logger.log(`[AUTH] Student register attempt: ${dto.email}`);
         const existing = await this.prisma.student.findUnique({
             where: { email: dto.email },
         });
         if (existing) {
+            this.logger.warn(`[AUTH] Register conflict: ${dto.email} already exists`);
             throw new common_1.ConflictException('Email already registered');
         }
         const passwordHash = await bcrypt.hash(dto.password, 12);
@@ -80,20 +85,24 @@ let AuthService = class AuthService {
             name: student.name,
         });
         await this.createSession(student.id, 'student', tokens.refreshToken);
+        this.logger.log(`[AUTH] Student registered successfully: ${student.id}`);
         return {
             user: this.sanitizeStudent(student),
             ...tokens,
         };
     }
     async loginStudent(dto) {
+        this.logger.log(`[AUTH] Student login attempt: ${dto.email}`);
         const student = await this.prisma.student.findUnique({
             where: { email: dto.email },
         });
         if (!student || !student.isActive) {
+            this.logger.warn(`[AUTH] Login failed - not found or inactive: ${dto.email}`);
             throw new common_1.UnauthorizedException('Invalid email or password');
         }
         const valid = await bcrypt.compare(dto.password, student.passwordHash);
         if (!valid) {
+            this.logger.warn(`[AUTH] Login failed - wrong password: ${dto.email}`);
             throw new common_1.UnauthorizedException('Invalid email or password');
         }
         const tokens = await this.generateTokens({
@@ -103,6 +112,7 @@ let AuthService = class AuthService {
             name: student.name,
         });
         await this.createSession(student.id, 'student', tokens.refreshToken);
+        this.logger.log(`[AUTH] Student login success: ${student.id}`);
         return {
             user: this.sanitizeStudent(student),
             ...tokens,
@@ -207,7 +217,7 @@ let AuthService = class AuthService {
         catch {
             throw new common_1.UnauthorizedException('Invalid or expired refresh token');
         }
-        const tokenHash = await this.hashToken(dto.refreshToken);
+        const tokenHash = this.hashToken(dto.refreshToken);
         const session = await this.prisma.refreshSession.findFirst({
             where: {
                 userId: payload.sub,
@@ -226,7 +236,7 @@ let AuthService = class AuthService {
             ...(payload.name ? { name: payload.name } : {}),
             ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
         });
-        const newTokenHash = await this.hashToken(newTokens.refreshToken);
+        const newTokenHash = this.hashToken(newTokens.refreshToken);
         await this.prisma.refreshSession.update({
             where: { id: session.id },
             data: {
@@ -239,7 +249,7 @@ let AuthService = class AuthService {
     }
     async logout(refreshToken) {
         try {
-            const tokenHash = await this.hashToken(refreshToken);
+            const tokenHash = this.hashToken(refreshToken);
             await this.prisma.refreshSession.updateMany({
                 where: { refreshTokenHash: tokenHash, revokedAt: null },
                 data: { revokedAt: new Date() },
@@ -289,7 +299,7 @@ let AuthService = class AuthService {
         return { accessToken, refreshToken };
     }
     async createSession(userId, userType, refreshToken, deviceId, deviceName) {
-        const tokenHash = await this.hashToken(refreshToken);
+        const tokenHash = this.hashToken(refreshToken);
         const sessionData = {
             userId,
             userType,
@@ -306,8 +316,8 @@ let AuthService = class AuthService {
         }
         await this.prisma.refreshSession.create({ data: sessionData });
     }
-    async hashToken(token) {
-        return bcrypt.hash(token.slice(-32), 4);
+    hashToken(token) {
+        return crypto.createHash('sha256').update(token).digest('hex');
     }
     sanitizeStudent(student) {
         return {
@@ -320,7 +330,7 @@ let AuthService = class AuthService {
     }
 };
 exports.AuthService = AuthService;
-exports.AuthService = AuthService = __decorate([
+exports.AuthService = AuthService = AuthService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_js_1.PrismaService,
         jwt_1.JwtService,

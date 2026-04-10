@@ -47,9 +47,9 @@ export declare class PaymentService {
                 status: string;
                 orderId: string;
                 razorpayPaymentId: string | null;
+                gateway: string;
                 razorpayOrderId: string | null;
                 razorpaySignature: string | null;
-                gateway: string;
                 amount: number;
                 currency: string;
                 paidAt: Date | null;
@@ -61,14 +61,18 @@ export declare class PaymentService {
             updatedAt: Date;
             studentId: string;
             notes: string | null;
+            scheduledFor: Date | null;
             status: string;
             tokenNumber: string;
             subtotal: number;
             total: number;
             paymentStatus: string;
             paymentMethod: string | null;
+            estimatedReadyAt: Date | null;
             orderedAt: Date;
             completedAt: Date | null;
+            printedAt: Date | null;
+            hiddenFromCanteenAt: Date | null;
         };
     }>;
     getPaymentByOrderId(orderId: string): Promise<{
@@ -78,9 +82,9 @@ export declare class PaymentService {
         status: string;
         orderId: string;
         razorpayPaymentId: string | null;
+        gateway: string;
         razorpayOrderId: string | null;
         razorpaySignature: string | null;
-        gateway: string;
         amount: number;
         currency: string;
         paidAt: Date | null;

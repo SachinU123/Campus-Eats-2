@@ -12,7 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CanteenOrderController = exports.OrderController = void 0;
+exports.CanteenReportsController = exports.CanteenOrderController = exports.OrderController = void 0;
 const common_1 = require("@nestjs/common");
 const orders_service_js_1 = require("./orders.service.js");
 const order_dto_js_1 = require("./dto/order.dto.js");
@@ -103,6 +103,10 @@ let CanteenOrderController = class CanteenOrderController {
         const order = await this.orderService.updateOrderStatus(id, dto);
         return api_response_dto_js_1.ApiResponse.ok(order, `Order status updated to ${dto.status}`);
     }
+    async printOrder(id) {
+        const order = await this.orderService.printOrder(id);
+        return api_response_dto_js_1.ApiResponse.ok(order, 'Order marked as printed');
+    }
 };
 exports.CanteenOrderController = CanteenOrderController;
 __decorate([
@@ -134,10 +138,51 @@ __decorate([
     __metadata("design:paramtypes", [String, order_dto_js_1.UpdateOrderStatusDto]),
     __metadata("design:returntype", Promise)
 ], CanteenOrderController.prototype, "completeOrder", null);
+__decorate([
+    (0, common_1.Patch)(':id/print'),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CanteenOrderController.prototype, "printOrder", null);
 exports.CanteenOrderController = CanteenOrderController = __decorate([
     (0, common_1.Controller)('canteen/orders'),
     (0, common_1.UseGuards)(jwt_auth_guard_js_1.JwtAuthGuard, roles_guard_js_1.RolesGuard),
     (0, roles_decorator_js_1.Roles)('canteen'),
     __metadata("design:paramtypes", [orders_service_js_1.OrderService])
 ], CanteenOrderController);
+let CanteenReportsController = class CanteenReportsController {
+    orderService;
+    constructor(orderService) {
+        this.orderService = orderService;
+    }
+    async getReports() {
+        const data = await this.orderService.getCanteenReports();
+        return api_response_dto_js_1.ApiResponse.ok(data, 'Reports retrieved');
+    }
+    async clearCompletedHistory(canteenUserId) {
+        const result = await this.orderService.clearCompletedHistory(canteenUserId);
+        return api_response_dto_js_1.ApiResponse.ok(result, `Cleared ${result.cleared} completed orders`);
+    }
+};
+exports.CanteenReportsController = CanteenReportsController;
+__decorate([
+    (0, common_1.Get)('reports'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], CanteenReportsController.prototype, "getReports", null);
+__decorate([
+    (0, common_1.Delete)('history/completed'),
+    __param(0, (0, current_user_decorator_js_1.CurrentUser)('sub')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], CanteenReportsController.prototype, "clearCompletedHistory", null);
+exports.CanteenReportsController = CanteenReportsController = __decorate([
+    (0, common_1.Controller)('canteen'),
+    (0, common_1.UseGuards)(jwt_auth_guard_js_1.JwtAuthGuard, roles_guard_js_1.RolesGuard),
+    (0, roles_decorator_js_1.Roles)('canteen'),
+    __metadata("design:paramtypes", [orders_service_js_1.OrderService])
+], CanteenReportsController);
 //# sourceMappingURL=orders.controller.js.map

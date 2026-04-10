@@ -312,6 +312,26 @@ export class OrderService {
     return { cleared: result.count };
   }
 
+  // ─── Canteen: Mark Order as Printed ────────────────────────
+
+  async printOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, student: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    // Idempotent — if already printed, still return success with current state
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { printedAt: order.printedAt ?? new Date() },
+      include: { items: true, student: true },
+    });
+    this.logger.log(
+      `[CANTEEN] printOrder orderId=${orderId} printedAt=${updated.printedAt?.toISOString()}`,
+    );
+    return updated;
+  }
+
   // ─── Canteen: Update Order Status ──────────────────────────
 
   async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
