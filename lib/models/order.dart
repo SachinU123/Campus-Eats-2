@@ -16,6 +16,7 @@ class Order {
   final DateTime? estimatedReadyAt; // ETA for immediate orders (null = unknown)
   final DateTime placedAt;
   final String qrContent; // ORDER_CE-TOKEN_XXXX
+  final DateTime? printedAt; // set when canteen prints the slip; separate from completed
 
   const Order({
     required this.id,
@@ -32,6 +33,7 @@ class Order {
     this.isScheduled = false,
     this.scheduledFor,
     this.estimatedReadyAt,
+    this.printedAt,
   });
 
   Order copyWith({
@@ -49,6 +51,8 @@ class Order {
     DateTime? estimatedReadyAt,
     DateTime? placedAt,
     String? qrContent,
+    DateTime? printedAt,
+    bool clearPrintedAt = false,
   }) {
     return Order(
       id: id ?? this.id,
@@ -65,12 +69,16 @@ class Order {
       estimatedReadyAt: estimatedReadyAt ?? this.estimatedReadyAt,
       placedAt: placedAt ?? this.placedAt,
       qrContent: qrContent ?? this.qrContent,
+      printedAt: clearPrintedAt ? null : (printedAt ?? this.printedAt),
     );
   }
 
   bool get isCompleted => status == 'Collected';
-  bool get isActive => !isCompleted && status != 'Cancelled';
   bool get isCancelled => status == 'Cancelled';
+  bool get isPrinted => printedAt != null;
+  // Active = not completed, not cancelled. Printed orders are NOT active —
+  // they have their own separate bucket in the canteen UI.
+  bool get isActive => !isCompleted && !isCancelled && !isPrinted;
 
   /// Returns a human-readable time label for the order.
   /// - Scheduled orders: "Pickup at h:mm a" (e.g. "Pickup at 11:30 AM")
@@ -103,6 +111,7 @@ class Order {
       'estimatedReadyAt': estimatedReadyAt?.toIso8601String(),
       'placedAt': placedAt.toIso8601String(),
       'qrContent': qrContent,
+      'printedAt': printedAt?.toIso8601String(),
     };
   }
 
@@ -128,6 +137,9 @@ class Order {
           : null,
       placedAt: DateTime.parse(map['placedAt'] as String),
       qrContent: map['qrContent'] as String,
+      printedAt: map['printedAt'] != null
+          ? DateTime.parse(map['printedAt'] as String)
+          : null,
     );
   }
 }

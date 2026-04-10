@@ -7,6 +7,7 @@ import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
 import 'package:campus_eats_ag/data/repositories/theme_repository.dart';
+import 'package:campus_eats_ag/features/canteen/orders/canteen_help_bottom_sheet.dart';
 
 class CanteenProfileScreen extends ConsumerWidget {
   const CanteenProfileScreen({super.key});
@@ -136,13 +137,30 @@ class CanteenProfileScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle(context, Icons.tune_outlined, 'Preferences'),
+                  _sectionTitle(context, Icons.tune_outlined, 'Appearance'),
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      const Icon(Icons.dark_mode_outlined, size: 20),
+                      Icon(
+                        themeMode == 2
+                            ? Icons.dark_mode_rounded
+                            : Icons.light_mode_rounded,
+                        size: 20,
+                        color: themeMode == 2 ? const Color(0xFF9575CD) : AppColors.warning,
+                      ),
                       const SizedBox(width: 12),
-                      const Expanded(child: Text('Dark Mode')),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Dark Mode'),
+                            Text(
+                              themeMode == 2 ? 'Dark theme active' : 'Light theme active',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
                       Switch(
                         value: themeMode == 2,
                         onChanged: (v) =>
@@ -220,12 +238,15 @@ class CanteenProfileScreen extends ConsumerWidget {
                   const Divider(height: 8),
                   _ActionRow(
                     icon: Icons.help_outline_rounded,
-                    label: 'Help & Support',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Coming soon')),
-                      );
-                    },
+                    label: 'Help & Contact',
+                    onTap: () => showModalBottomSheet(
+                      context: context,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(24)),
+                      ),
+                      builder: (_) => const CanteenHelpBottomSheet(),
+                    ),
                   ),
                   const Divider(height: 8),
                   _ActionRow(
@@ -478,3 +499,4 @@ class _ActionRow extends StatelessWidget {
     );
   }
 }
+

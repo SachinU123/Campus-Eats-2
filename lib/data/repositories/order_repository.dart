@@ -128,6 +128,21 @@ class OrderRepository {
     }
   }
 
+  /// Mark an order's slip as printed (idempotent).
+  /// This moves the order out of the active queue into the Printed bucket.
+  Future<void> printOrder(String orderId) async {
+    final result = await _api.patch('/canteen/orders/$orderId/print', body: {});
+    if (result.isSuccess) {
+      final index = _orders.indexWhere((o) => o.id == orderId);
+      if (index >= 0) {
+        _orders[index] =
+            _orders[index].copyWith(printedAt: DateTime.now());
+      }
+    } else {
+      throw Exception(result.message);
+    }
+  }
+
   List<Order> getByStudent(String studentId) =>
       _orders.where((o) => o.studentId == studentId).toList();
 
@@ -198,6 +213,9 @@ class OrderRepository {
       estimatedReadyAt: estimatedReadyAt,
       placedAt: placedAt,
       qrContent: 'ORDER_CE-${token}_TOKEN_$token',
+      printedAt: data['printedAt'] != null
+          ? DateTime.tryParse(data['printedAt'] as String)?.toLocal()
+          : null,
     );
   }
 
