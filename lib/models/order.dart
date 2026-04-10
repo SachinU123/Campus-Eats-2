@@ -75,10 +75,12 @@ class Order {
 
   bool get isCompleted => status == 'Collected';
   bool get isCancelled => status == 'Cancelled';
-  bool get isPrinted => printedAt != null;
-  // Active = not completed, not cancelled. Printed orders are NOT active —
-  // they have their own separate bucket in the canteen UI.
-  bool get isActive => !isCompleted && !isCancelled && !isPrinted;
+  bool get isPrinted => printedAt != null; // canteen-only concept: slip has been printed
+  // isActive = not finished (not completed, not cancelled).
+  // NOTE: printed orders are still active from the student's perspective —
+  // the student still needs to collect their food and show their QR.
+  // isPrinted is CANTEEN-UI only and must NOT affect this getter.
+  bool get isActive => !isCompleted && !isCancelled;
 
   /// Returns a human-readable time label for the order.
   /// - Scheduled orders: "Pickup at h:mm a" (e.g. "Pickup at 11:30 AM")

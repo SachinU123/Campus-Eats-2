@@ -231,13 +231,20 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
                 }).toList()
               : orders;
 
-          // ── Partition orders into three buckets ──────────────────
-          // Queue  = paid + not printed + not completed (active)
-          // Printed = has printedAt timestamp (status still 'Verified')
-          // Completed = Collected (completed)
-          final queueOrders = filtered.where((o) => o.isActive).toList();
-          final printedOrders = filtered.where((o) => o.isPrinted && !o.isCompleted).toList();
-          final completedOrders = filtered.where((o) => o.isCompleted).toList();
+          // ── Partition orders into three canteen buckets ──────────────
+          // Queue   = paid + NOT yet printed + not completed
+          // Printed = printedAt is set + not yet collected
+          // Completed = isCompleted (status == 'Collected')
+          // NOTE: do NOT use o.isActive for Queue, because isActive no longer
+          //       excludes isPrinted (that was a regression — isActive is a
+          //       shared student-side getter and must remain student-safe).
+          final queueOrders = filtered
+              .where((o) => !o.isPrinted && !o.isCompleted && !o.isCancelled)
+              .toList();
+          final printedOrders =
+              filtered.where((o) => o.isPrinted && !o.isCompleted).toList();
+          final completedOrders =
+              filtered.where((o) => o.isCompleted).toList();
 
           Future<void> doRefresh() =>
               ref.read(canteenOrdersProvider.notifier).refresh();
