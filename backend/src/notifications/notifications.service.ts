@@ -57,11 +57,16 @@ export class NotificationsService implements OnModuleInit {
 
     // ── Dynamic import — keeps the app bootable without firebase-admin ───────
     try {
-      admin = await import('firebase-admin').catch(() => null);
-      if (!admin) {
+      const mod = await import('firebase-admin').catch(() => null);
+      if (!mod) {
         this.logger.error('[FCM] firebase-admin package could not be loaded');
         return;
       }
+      // firebase-admin is CommonJS. When the NestJS host runs as ESM the
+      // dynamic import wraps it: the real module sits on mod.default.
+      // Fall back to mod itself for CJS contexts (local dev / Jest).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      admin = ((mod as any).default ?? mod) as typeof import('firebase-admin');
 
       // ── Idempotent init — safe in HMR / watch mode ───────────────────────
       if (admin.apps.length === 0) {
