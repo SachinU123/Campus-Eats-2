@@ -44,6 +44,22 @@ async function bootstrap() {
     allowedHeaders: 'Content-Type,Authorization',
   });
 
+  // ── Root health route — GET / and HEAD / ─────────────────────────────────
+  // Registered on the raw Express adapter BEFORE setGlobalPrefix so it is
+  // not affected by the /api/v1 prefix. Eliminates noisy 404s from Render
+  // uptime checks, browser hits, and health monitors.
+  const httpAdapter = app.getHttpAdapter().getInstance() as import('express').Application;
+  httpAdapter.get('/', (_req: Request, res: Response) => {
+    res.status(200).json({
+      status: 'ok',
+      message: 'CampusEats API is running',
+      basePath: '/api/v1',
+    });
+  });
+  httpAdapter.head('/', (_req: Request, res: Response) => {
+    res.status(200).end();
+  });
+
   // API prefix
   app.setGlobalPrefix('api/v1');
 

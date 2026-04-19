@@ -3,6 +3,13 @@
 -keep class io.flutter.** { *; }
 -keep class io.flutter.embedding.** { *; }
 
+# ── Play Core / Deferred Components ───────────────────────────────────────────
+# Flutter's engine references Play Core SplitInstall classes for dynamic feature
+# delivery. We do NOT use deferred components, so these classes are absent from
+# our build. Tell R8 to suppress the missing-class errors rather than fail.
+-dontwarn com.google.android.play.core.**
+-dontwarn io.flutter.embedding.android.FlutterPlayStoreSplitApplication
+
 # Keep Firebase / Google services
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
