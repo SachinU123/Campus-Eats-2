@@ -1,4 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Camera: QR scanner -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Internet: API calls, FCM -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Bluetooth: Thermal printer (ESC/POS) connection via unified_esc_pos_printer -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <application
         android:label="campus_eats_ag"
         android:name="${applicationName}"

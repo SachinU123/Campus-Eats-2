@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,15 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
 
   bool _loading = false;
   String? _error;
+  int _resendCooldown = 0;
+  Timer? _cooldownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start with 30s cooldown to prevent immediate resend spamming
+    _startCooldown(30);
+  }
 
   @override
   void dispose() {
@@ -32,7 +42,23 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
     for (final f in _focusNodes) {
       f.dispose();
     }
+    _cooldownTimer?.cancel();
     super.dispose();
+  }
+
+  void _startCooldown(int seconds) {
+    setState(() => _resendCooldown = seconds);
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        _resendCooldown--;
+        if (_resendCooldown <= 0) t.cancel();
+      });
+    });
   }
 
   String get _otp => _ctrls.map((c) => c.text).join();
@@ -49,7 +75,6 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
     });
 
     try {
-      // Verify OTP against real backend
       final success = await ref
           .read(authProvider.notifier)
           .verifyCanteenOtp(phone: widget.phoneNumber, otp: _otp);
@@ -61,6 +86,42 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
         context.go('/canteen');
       } else {
         setState(() => _error = 'Invalid OTP. Please try again.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _resendOtp() async {
+    if (_resendCooldown > 0) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      await ref
+          .read(authProvider.notifier)
+          .requestCanteenOtp(widget.phoneNumber);
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _startCooldown(60);
+
+      // Clear fields for fresh entry
+      for (final c in _ctrls) {
+        c.clear();
+      }
+      if (_focusNodes.isNotEmpty) _focusNodes[0].requestFocus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('New OTP sent!')),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -84,11 +145,12 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         leading: BackButton(onPressed: () => context.pop()),
         title: const Text('Enter OTP'),
         centerTitle: true,
-        backgroundColor: Colors.transparent,
         elevation: 0,
       ),
       body: SafeArea(
@@ -99,7 +161,7 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
             children: [
               const SizedBox(height: 32),
 
-              // Icon
+              // ── Icon ──────────────────────────────────────────────
               Container(
                 width: 72,
                 height: 72,
@@ -121,13 +183,14 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                 'OTP Sent',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w800,
+                  color: Colors.black87,
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 'Enter the 4-digit code sent to',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: Colors.black54,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -136,13 +199,13 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                 '+91 ${widget.phoneNumber}',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.primary,
+                  color: AppColors.primary,
                 ),
               ),
 
               const SizedBox(height: 36),
 
-              // OTP digit boxes
+              // ── OTP digit boxes ────────────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(4, (i) {
@@ -160,32 +223,32 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly
                         ],
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 30,
                           fontWeight: FontWeight.w800,
-                          color: theme.colorScheme.primary,
+                          color: AppColors.primary,
                         ),
                         decoration: InputDecoration(
                           counterText: '',
                           filled: true,
-                          fillColor: theme.colorScheme.primaryContainer
-                              .withValues(alpha: 0.2),
+                          fillColor:
+                              AppColors.primary.withValues(alpha: 0.06),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(
-                                color: theme.colorScheme.outline
-                                    .withValues(alpha: 0.4)),
+                                color: AppColors.primary
+                                    .withValues(alpha: 0.3)),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                                color: theme.colorScheme.primary, width: 2.5),
+                            borderSide: const BorderSide(
+                                color: AppColors.primary, width: 2.5),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(
-                                color: theme.colorScheme.outline
-                                    .withValues(alpha: 0.3)),
+                                color: AppColors.primary
+                                    .withValues(alpha: 0.2)),
                           ),
                           contentPadding: EdgeInsets.zero,
                         ),
@@ -207,6 +270,7 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                 }),
               ),
 
+              // ── Error banner ────────────────────────────────────────
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Container(
@@ -215,8 +279,8 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                   decoration: BoxDecoration(
                     color: AppColors.error.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                    border: Border.all(
+                        color: AppColors.error.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
@@ -244,6 +308,40 @@ class _CanteenOtpScreenState extends ConsumerState<CanteenOtpScreen> {
                 isLoading: _loading,
               ),
               const SizedBox(height: 16),
+
+              // ── Resend OTP ──────────────────────────────────────────
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Didn't receive it? ",
+                    style: TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                  _resendCooldown > 0
+                      ? Text(
+                          'Resend in ${_resendCooldown}s',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      : GestureDetector(
+                          onTap: _resendOtp,
+                          child: const Text(
+                            'Resend OTP',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _clear,
                 icon: const Icon(Icons.refresh_rounded, size: 16),

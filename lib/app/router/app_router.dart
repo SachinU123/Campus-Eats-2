@@ -19,8 +19,14 @@ import 'package:campus_eats_ag/features/student/payment/order_success_screen.dar
 import 'package:campus_eats_ag/features/canteen/canteen_shell.dart';
 import 'package:campus_eats_ag/features/canteen/verify/canteen_verify_screen.dart';
 import 'package:campus_eats_ag/features/canteen/orders/canteen_orders_screen.dart';
+import 'package:campus_eats_ag/features/canteen/menu/canteen_menu_manage_screen.dart';
 import 'package:campus_eats_ag/features/canteen/reports/canteen_reports_screen.dart';
 import 'package:campus_eats_ag/features/canteen/profile/canteen_profile_screen.dart';
+// Phase 7: Admin shell and screens
+import 'package:campus_eats_ag/features/admin/admin_shell.dart';
+import 'package:campus_eats_ag/features/admin/dashboard/admin_dashboard_screen.dart';
+import 'package:campus_eats_ag/features/admin/menu/admin_menu_screen.dart';
+import 'package:campus_eats_ag/features/admin/staff/admin_staff_screen.dart';
 import 'package:campus_eats_ag/models/menu_item.dart';
 import 'package:campus_eats_ag/models/order.dart';
 
@@ -29,13 +35,15 @@ final _studentShellKey =
     GlobalKey<NavigatorState>(debugLabel: 'studentShell');
 final _canteenShellKey =
     GlobalKey<NavigatorState>(debugLabel: 'canteenShell');
+final _adminShellKey =
+    GlobalKey<NavigatorState>(debugLabel: 'adminShell');
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authProvider);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: _resolveInitial(auth?.role),
+    initialLocation: _resolveInitial(auth),
     redirect: (context, state) {
       final user = ref.read(authProvider);
       final loc = state.matchedLocation;
@@ -51,23 +59,43 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Logged in → don't let them see auth screens
       if (user != null && isPublicPath) {
-        return user.role == 'canteen' ? '/canteen' : '/student';
+        return _resolveInitial(user);
       }
 
-      // Logged-in canteen trying to access student area → redirect
-      if (user != null && user.role == 'canteen' && loc.startsWith('/student')) {
-        return '/canteen';
+      final isAdmin = user != null && user.isAdmin;
+      final isCanteen = user != null && user.role == 'canteen';
+      final isCustomer = user != null &&
+          (user.role == 'student' || user.role == 'faculty');
+
+      // Phase 7: admin routes to /admin shell
+      if (isAdmin) {
+        // Admin should not go to /canteen or /student
+        if (loc.startsWith('/canteen') || loc.startsWith('/student')) {
+          return '/admin';
+        }
+        return null;
       }
 
-      // Logged-in student trying to access canteen area → redirect
-      if (user != null && user.role == 'student' && loc.startsWith('/canteen')) {
-        return '/student';
+      // Regular canteen staff: cannot access /student or /admin
+      if (isCanteen) {
+        if (loc.startsWith('/student') || loc.startsWith('/admin')) {
+          return '/canteen';
+        }
+        return null;
+      }
+
+      // Student/faculty: cannot access /canteen or /admin
+      if (isCustomer) {
+        if (loc.startsWith('/canteen') || loc.startsWith('/admin')) {
+          return '/student';
+        }
+        return null;
       }
 
       return null;
     },
     routes: [
-      // ── Auth routes (public) ─────────────────────────────────────────────
+      // ── Auth routes (public) ──────────────────────────────────────────
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -92,7 +120,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
 
-      // ── Student shell ────────────────────────────────────────────────────
+      // ── Student shell ─────────────────────────────────────────────────
       ShellRoute(
         navigatorKey: _studentShellKey,
         builder: (context, state, child) => StudentShell(child: child),
@@ -153,7 +181,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
-      // ── Canteen shell ────────────────────────────────────────────────────
+      // ── Canteen shell (regular staff) ─────────────────────────────────
       ShellRoute(
         navigatorKey: _canteenShellKey,
         builder: (context, state, child) => CanteenShell(child: child),
@@ -167,6 +195,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const CanteenOrdersScreen(),
           ),
           GoRoute(
+            path: '/canteen/menu',
+            builder: (context, state) => const CanteenMenuManageScreen(),
+          ),
+          GoRoute(
             path: '/canteen/reports',
             builder: (context, state) => const CanteenReportsScreen(),
           ),
@@ -176,14 +208,47 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
+
+      // ── Admin shell (Phase 7) ─────────────────────────────────────────
+      ShellRoute(
+        navigatorKey: _adminShellKey,
+        builder: (context, state, child) => AdminShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/admin',
+            builder: (context, state) => const AdminDashboardScreen(),
+          ),
+          GoRoute(
+            path: '/admin/menu',
+            builder: (context, state) => const AdminMenuScreen(),
+          ),
+          GoRoute(
+            path: '/admin/staff',
+            builder: (context, state) => const AdminStaffScreen(),
+          ),
+        ],
+      ),
     ],
   );
 });
 
-String _resolveInitial(String? role) {
+String _resolveInitial(dynamic userOrRole) {
+  final String? role;
+  final bool isAdmin;
+  if (userOrRole is String?) {
+    role = userOrRole;
+    isAdmin = false;
+  } else {
+    // UserProfile
+    final u = userOrRole;
+    role = u?.role as String?;
+    isAdmin = u?.isAdmin as bool? ?? false;
+  }
+  if (isAdmin) return '/admin';
   return switch (role) {
     'canteen' => '/canteen',
     'student' => '/student',
+    'faculty' => '/student',
     _ => '/login',
   };
 }

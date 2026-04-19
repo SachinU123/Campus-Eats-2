@@ -11,12 +11,14 @@ const common_1 = require("@nestjs/common");
 const orders_service_js_1 = require("./orders.service.js");
 const orders_controller_js_1 = require("./orders.controller.js");
 const auth_module_js_1 = require("../auth/auth.module.js");
+const settings_module_js_1 = require("../settings/settings.module.js");
+const notifications_module_js_1 = require("../notifications/notifications.module.js");
 let OrdersModule = class OrdersModule {
 };
 exports.OrdersModule = OrdersModule;
 exports.OrdersModule = OrdersModule = __decorate([
     (0, common_1.Module)({
-        imports: [auth_module_js_1.AuthModule],
+        imports: [auth_module_js_1.AuthModule, settings_module_js_1.SettingsModule, notifications_module_js_1.NotificationsModule],
         controllers: [orders_controller_js_1.OrderController, orders_controller_js_1.CanteenOrderController, orders_controller_js_1.CanteenReportsController],
         providers: [orders_service_js_1.OrderService],
         exports: [orders_service_js_1.OrderService],

@@ -1,10 +1,14 @@
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateOrderDto, UpdateOrderStatusDto } from './dto/order.dto.js';
+import { SettingsService } from '../settings/settings.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 export declare class OrderService {
     private readonly prisma;
+    private readonly settings;
+    private readonly notifications;
     private readonly logger;
-    constructor(prisma: PrismaService);
-    createOrder(studentId: string, dto: CreateOrderDto): Promise<{
+    constructor(prisma: PrismaService, settings: SettingsService, notifications: NotificationsService);
+    createOrder(callerId: string, dto: CreateOrderDto, callerRole?: 'student' | 'faculty'): Promise<{
         items: ({
             menuItem: {
                 id: string;
@@ -19,6 +23,9 @@ export declare class OrderService {
                 price: number;
                 isVeg: boolean;
                 isAvailable: boolean;
+                isUnavailableToday: boolean;
+                isSpecial: boolean;
+                specialLabel: string;
                 prepTimeMinutes: number;
             };
         } & {
@@ -42,15 +49,31 @@ export declare class OrderService {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -60,6 +83,7 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>;
     getStudentOrders(studentId: string): Promise<({
@@ -81,9 +105,9 @@ export declare class OrderService {
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -94,10 +118,12 @@ export declare class OrderService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -107,6 +133,57 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
+        hiddenFromCanteenAt: Date | null;
+    })[]>;
+    getFacultyOrders(facultyId: string): Promise<({
+        items: {
+            id: string;
+            createdAt: Date;
+            emoji: string;
+            isVeg: boolean;
+            menuItemId: string;
+            quantity: number;
+            itemNameSnapshot: string;
+            unitPriceSnapshot: number;
+            lineTotal: number;
+            orderId: string;
+        }[];
+        paymentTransaction: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            status: string;
+            orderId: string;
+            gateway: string;
+            razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
+            razorpaySignature: string | null;
+            amount: number;
+            currency: string;
+            paidAt: Date | null;
+            rawPayloadJson: import("@prisma/client/runtime/client").JsonValue | null;
+        } | null;
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        studentId: string | null;
+        facultyId: string | null;
+        notes: string | null;
+        scheduledFor: Date | null;
+        status: string;
+        customerRole: string;
+        tokenNumber: string;
+        subtotal: number;
+        total: number;
+        paymentStatus: string;
+        paymentMethod: string | null;
+        estimatedReadyAt: Date | null;
+        orderedAt: Date;
+        completedAt: Date | null;
+        printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     })[]>;
     getOrderById(orderId: string): Promise<{
@@ -131,16 +208,17 @@ export declare class OrderService {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -158,10 +236,12 @@ export declare class OrderService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -171,6 +251,7 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>;
     getCanteenOrders(status?: string): Promise<({
@@ -191,16 +272,24 @@ export declare class OrderService {
             phoneNumber: string;
             name: string;
             email: string;
-        };
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            email: string;
+            department: string;
+            roomNumber: string;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -211,10 +300,12 @@ export declare class OrderService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -224,6 +315,7 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     })[]>;
     getCanteenReports(): Promise<{
@@ -266,15 +358,31 @@ export declare class OrderService {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -284,9 +392,10 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>;
-    updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto): Promise<{
+    updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto): Promise<({
         items: {
             id: string;
             createdAt: Date;
@@ -308,15 +417,31 @@ export declare class OrderService {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -326,7 +451,146 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
+    }) | null>;
+    markOrderReady(orderId: string): Promise<{
+        items: {
+            id: string;
+            createdAt: Date;
+            emoji: string;
+            isVeg: boolean;
+            menuItemId: string;
+            quantity: number;
+            itemNameSnapshot: string;
+            unitPriceSnapshot: number;
+            lineTotal: number;
+            orderId: string;
+        }[];
+        student: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        studentId: string | null;
+        facultyId: string | null;
+        notes: string | null;
+        scheduledFor: Date | null;
+        status: string;
+        customerRole: string;
+        tokenNumber: string;
+        subtotal: number;
+        total: number;
+        paymentStatus: string;
+        paymentMethod: string | null;
+        estimatedReadyAt: Date | null;
+        orderedAt: Date;
+        completedAt: Date | null;
+        printedAt: Date | null;
+        readyAt: Date | null;
+        hiddenFromCanteenAt: Date | null;
+    }>;
+    registerFcmToken(userId: string, userRole: 'student' | 'faculty', token: string): Promise<void>;
+    getOrderQueueCount(): Promise<{
+        count: number;
+        latestOrderedAt: string | null;
+    }>;
+    verifyAndCompleteByToken(token: string, canteenUserId: string): Promise<{
+        found: boolean;
+        reason: string;
+        message: string;
+        order?: undefined;
+    } | {
+        found: boolean;
+        order: {
+            items: {
+                id: string;
+                createdAt: Date;
+                emoji: string;
+                isVeg: boolean;
+                menuItemId: string;
+                quantity: number;
+                itemNameSnapshot: string;
+                unitPriceSnapshot: number;
+                lineTotal: number;
+                orderId: string;
+            }[];
+            student: {
+                id: string;
+                phoneNumber: string;
+                name: string;
+                email: string;
+            } | null;
+            faculty: {
+                id: string;
+                phoneNumber: string;
+                name: string;
+                email: string;
+                department: string;
+                roomNumber: string;
+            } | null;
+            paymentTransaction: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                status: string;
+                orderId: string;
+                gateway: string;
+                razorpayOrderId: string | null;
+                razorpayPaymentId: string | null;
+                razorpaySignature: string | null;
+                amount: number;
+                currency: string;
+                paidAt: Date | null;
+                rawPayloadJson: import("@prisma/client/runtime/client").JsonValue | null;
+            } | null;
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            studentId: string | null;
+            facultyId: string | null;
+            notes: string | null;
+            scheduledFor: Date | null;
+            status: string;
+            customerRole: string;
+            tokenNumber: string;
+            subtotal: number;
+            total: number;
+            paymentStatus: string;
+            paymentMethod: string | null;
+            estimatedReadyAt: Date | null;
+            orderedAt: Date;
+            completedAt: Date | null;
+            printedAt: Date | null;
+            readyAt: Date | null;
+            hiddenFromCanteenAt: Date | null;
+        };
+        reason: string;
+        message: string;
     }>;
     finalizeOrder(orderId: string): Promise<{
         items: {
@@ -350,16 +614,17 @@ export declare class OrderService {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -370,10 +635,12 @@ export declare class OrderService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -383,6 +650,7 @@ export declare class OrderService {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>;
     getSlip(orderId: string): Promise<{

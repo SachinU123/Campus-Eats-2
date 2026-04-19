@@ -14,6 +14,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import {
   StudentRegisterDto,
   StudentLoginDto,
+  FacultyRegisterDto,
+  FacultyLoginDto,
   CanteenRequestOtpDto,
   CanteenVerifyOtpDto,
   RefreshTokenDto,
@@ -100,6 +102,91 @@ export class AuthService {
 
     return {
       user: this.sanitizeStudent(student),
+      ...tokens,
+    };
+  }
+
+  // ─── Faculty Registration ───────────────────────────────────
+
+  async registerFaculty(dto: FacultyRegisterDto) {
+    this.logger.log(`[AUTH] Faculty register attempt: ${dto.email}`);
+
+    const existing = await this.prisma.faculty.findUnique({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      this.logger.warn(`[AUTH] Faculty register conflict: ${dto.email} already exists`);
+      throw new ConflictException('Email already registered');
+    }
+
+    // Also check student table to prevent cross-table email collision
+    const studentConflict = await this.prisma.student.findUnique({
+      where: { email: dto.email },
+    });
+    if (studentConflict) {
+      throw new ConflictException('Email already registered as a student account');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+
+    const faculty = await this.prisma.faculty.create({
+      data: {
+        email: dto.email,
+        name: dto.name,
+        phoneNumber: dto.phoneNumber,
+        department: dto.department ?? '',
+        roomNumber: dto.roomNumber ?? '',
+        passwordHash,
+      },
+    });
+
+    const tokens = await this.generateTokens({
+      sub: faculty.id,
+      role: 'faculty',
+      email: faculty.email,
+      name: faculty.name,
+    });
+
+    await this.createSession(faculty.id, 'faculty', tokens.refreshToken);
+    this.logger.log(`[AUTH] Faculty registered successfully: ${faculty.id}`);
+
+    return {
+      user: this.sanitizeFaculty(faculty),
+      ...tokens,
+    };
+  }
+
+  // ─── Faculty Login ──────────────────────────────────────────
+
+  async loginFaculty(dto: FacultyLoginDto) {
+    this.logger.log(`[AUTH] Faculty login attempt: ${dto.email}`);
+
+    const faculty = await this.prisma.faculty.findUnique({
+      where: { email: dto.email },
+    });
+    if (!faculty || !faculty.isActive) {
+      this.logger.warn(`[AUTH] Faculty login failed - not found or inactive: ${dto.email}`);
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const valid = await bcrypt.compare(dto.password, faculty.passwordHash);
+    if (!valid) {
+      this.logger.warn(`[AUTH] Faculty login failed - wrong password: ${dto.email}`);
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const tokens = await this.generateTokens({
+      sub: faculty.id,
+      role: 'faculty',
+      email: faculty.email,
+      name: faculty.name,
+    });
+
+    await this.createSession(faculty.id, 'faculty', tokens.refreshToken);
+    this.logger.log(`[AUTH] Faculty login success: ${faculty.id}`);
+
+    return {
+      user: this.sanitizeFaculty(faculty),
       ...tokens,
     };
   }
@@ -207,6 +294,7 @@ export class AuthService {
     const tokens = await this.generateTokens({
       sub: canteenUser.id,
       role: 'canteen',
+      canteenRole: canteenUser.role, // 'canteen_admin' | 'canteen' (staff)
       name: canteenUser.name,
       phoneNumber: canteenUser.phoneNumber,
     });
@@ -224,7 +312,8 @@ export class AuthService {
         id: canteenUser.id,
         name: canteenUser.name,
         phoneNumber: canteenUser.phoneNumber,
-        role: canteenUser.role,
+        role: canteenUser.role,     // 'canteen_admin' | 'canteen'
+        canteenRole: canteenUser.role,
       },
       ...tokens,
     };
@@ -257,10 +346,11 @@ export class AuthService {
       throw new UnauthorizedException('Session not found or revoked');
     }
 
-    // Rotate refresh token
+    // Rotate refresh token — preserve all payload fields including canteenRole
     const newTokens = await this.generateTokens({
       sub: payload.sub,
       role: payload.role,
+      ...(payload.canteenRole ? { canteenRole: payload.canteenRole } : {}),
       ...(payload.email ? { email: payload.email } : {}),
       ...(payload.name ? { name: payload.name } : {}),
       ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
@@ -304,6 +394,14 @@ export class AuthService {
       });
       if (!student) throw new UnauthorizedException('Student not found');
       return this.sanitizeStudent(student);
+    }
+
+    if (role === 'faculty') {
+      const faculty = await this.prisma.faculty.findUnique({
+        where: { id: userId },
+      });
+      if (!faculty) throw new UnauthorizedException('Faculty not found');
+      return this.sanitizeFaculty(faculty);
     }
 
     if (role === 'canteen') {
@@ -364,6 +462,8 @@ export class AuthService {
       sessionData.studentId = userId;
     } else if (userType === 'canteen') {
       sessionData.canteenUserId = userId;
+    } else if (userType === 'faculty') {
+      sessionData.facultyId = userId;
     }
 
     await this.prisma.refreshSession.create({ data: sessionData });
@@ -381,6 +481,18 @@ export class AuthService {
       name: student.name,
       phoneNumber: student.phoneNumber,
       role: 'student',
+    };
+  }
+
+  private sanitizeFaculty(faculty: any) {
+    return {
+      id: faculty.id,
+      email: faculty.email,
+      name: faculty.name,
+      phoneNumber: faculty.phoneNumber,
+      department: faculty.department,
+      roomNumber: faculty.roomNumber,
+      role: 'faculty',
     };
   }
 }

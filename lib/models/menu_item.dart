@@ -7,8 +7,11 @@ class MenuItem {
   final bool isVeg;
   final bool isPopular;
   final bool isAvailable;
-  final String imageUrl; // can be empty - use placeholder
-  final String emoji; // fallback emoji for card
+  final bool isUnavailableToday; // Phase 6: operational daily toggle
+  final bool isSpecial;          // Phase 6: special/event food flag
+  final String specialLabel;     // Phase 6: e.g. "Today's Special", "Event Food"
+  final String imageUrl;
+  final String emoji;
 
   const MenuItem({
     required this.id,
@@ -19,9 +22,15 @@ class MenuItem {
     this.isVeg = true,
     this.isPopular = false,
     this.isAvailable = true,
+    this.isUnavailableToday = false,
+    this.isSpecial = false,
+    this.specialLabel = '',
     this.imageUrl = '',
     this.emoji = '',
   });
+
+  /// An item is orderable if it is generally available AND not blocked today.
+  bool get isOrderable => isAvailable && !isUnavailableToday;
 
   MenuItem copyWith({
     String? id,
@@ -32,6 +41,9 @@ class MenuItem {
     bool? isVeg,
     bool? isPopular,
     bool? isAvailable,
+    bool? isUnavailableToday,
+    bool? isSpecial,
+    String? specialLabel,
     String? imageUrl,
     String? emoji,
   }) {
@@ -44,6 +56,9 @@ class MenuItem {
       isVeg: isVeg ?? this.isVeg,
       isPopular: isPopular ?? this.isPopular,
       isAvailable: isAvailable ?? this.isAvailable,
+      isUnavailableToday: isUnavailableToday ?? this.isUnavailableToday,
+      isSpecial: isSpecial ?? this.isSpecial,
+      specialLabel: specialLabel ?? this.specialLabel,
       imageUrl: imageUrl ?? this.imageUrl,
       emoji: emoji ?? this.emoji,
     );
@@ -59,6 +74,9 @@ class MenuItem {
       'isVeg': isVeg,
       'isPopular': isPopular,
       'isAvailable': isAvailable,
+      'isUnavailableToday': isUnavailableToday,
+      'isSpecial': isSpecial,
+      'specialLabel': specialLabel,
       'imageUrl': imageUrl,
       'emoji': emoji,
     };
@@ -74,6 +92,9 @@ class MenuItem {
       isVeg: map['isVeg'] as bool? ?? true,
       isPopular: map['isPopular'] as bool? ?? false,
       isAvailable: map['isAvailable'] as bool? ?? true,
+      isUnavailableToday: map['isUnavailableToday'] as bool? ?? false,
+      isSpecial: map['isSpecial'] as bool? ?? false,
+      specialLabel: map['specialLabel'] as String? ?? '',
       imageUrl: map['imageUrl'] as String? ?? '',
       emoji: map['emoji'] as String? ?? '',
     );

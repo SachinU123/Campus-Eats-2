@@ -15,6 +15,7 @@ const auth_module_js_1 = require("./auth/auth.module.js");
 const menu_module_js_1 = require("./menu/menu.module.js");
 const orders_module_js_1 = require("./orders/orders.module.js");
 const payments_module_js_1 = require("./payments/payments.module.js");
+const settings_module_js_1 = require("./settings/settings.module.js");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -33,6 +34,7 @@ exports.AppModule = AppModule = __decorate([
             menu_module_js_1.MenuModule,
             orders_module_js_1.OrdersModule,
             payments_module_js_1.PaymentsModule,
+            settings_module_js_1.SettingsModule,
         ],
     })
 ], AppModule);

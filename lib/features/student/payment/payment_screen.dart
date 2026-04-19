@@ -10,6 +10,7 @@ import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
 import 'package:campus_eats_ag/data/repositories/cart_repository.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
 import 'package:campus_eats_ag/data/repositories/payment_repository.dart';
+import 'package:campus_eats_ag/data/repositories/settings_repository.dart';
 import 'package:campus_eats_ag/models/order.dart';
 import 'package:campus_eats_ag/models/order_item.dart';
 
@@ -217,6 +218,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     final scheduledFor =
         scheduledForStr != null ? DateTime.parse(scheduledForStr) : null;
 
+    // Phase 7: Check canteen operational status for UX pre-check
+    final statusAsync = ref.watch(canteenStatusProvider);
+    final canteenStatus = statusAsync.asData?.value;
+    final isCanteenOpen = canteenStatus?.isOpen ?? true;
+
+
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment'),
@@ -372,9 +380,54 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 16),
+                  // Phase 7: Canteen closed/paused UX banner
+                  if (!isCanteenOpen)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: canteenStatus?.status == CanteenStatus.paused
+                            ? Colors.orange.withValues(alpha: 0.10)
+                            : Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: canteenStatus?.status == CanteenStatus.paused
+                              ? Colors.orange.withValues(alpha: 0.3)
+                              : Colors.red.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            canteenStatus?.status == CanteenStatus.paused
+                                ? Icons.pause_circle_rounded
+                                : Icons.store_mall_directory_outlined,
+                            size: 20,
+                            color: canteenStatus?.status == CanteenStatus.paused
+                                ? Colors.orange
+                                : Colors.red,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              canteenStatus?.customerNotice ??
+                                  'Canteen is not accepting orders right now.',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                color:
+                                    canteenStatus?.status == CanteenStatus.paused
+                                        ? Colors.orange
+                                        : Colors.red,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
                   if (_errorMessage != null)
+
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -433,9 +486,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             padding: const EdgeInsets.all(20),
             child: SafeArea(
               child: AppButton(
-                label: 'Pay Rs. ${subtotal.toInt()} via UPI',
+                label: isCanteenOpen
+                    ? 'Pay Rs. ${subtotal.toInt()} via UPI'
+                    : 'Ordering Unavailable',
                 isLoading: _isLoading,
-                onTap: () => _processPayment(context, subtotal, scheduledFor),
+                onTap: isCanteenOpen
+                    ? () => _processPayment(context, subtotal, scheduledFor)
+                    : null,
               ),
             ),
           ),

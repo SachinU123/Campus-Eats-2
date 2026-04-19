@@ -1,14 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module.js';
 import type { Request, Response, NextFunction } from 'express';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 
 const httpLogger = new Logger('HTTP');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // ─── Request logging middleware (temporary debug — remove after stabilisation) ───
+  // ─── Request logging middleware ───────────────────────────────────────────
   app.use((req: Request, res: Response, next: NextFunction) => {
     const start = Date.now();
     res.on('finish', () => {
@@ -29,6 +31,11 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Phase 11: Global exception filter — Sentry when SENTRY_DSN is set, else local log.
+  // Pulls ConfigService from DI so filter can read env vars.
+  const configService = app.get(ConfigService);
+  app.useGlobalFilters(new AllExceptionsFilter(configService));
 
   // CORS for Flutter app
   app.enableCors({

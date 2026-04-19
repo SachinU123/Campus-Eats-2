@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 
 /// Help & Contact bottom sheet used in both the Canteen Orders screen
 /// (AppBar quick-access) and the Canteen Profile screen.
-class CanteenHelpBottomSheet extends StatelessWidget {
+class CanteenHelpBottomSheet extends ConsumerWidget {
   const CanteenHelpBottomSheet({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final s = ref.watch(canteenL10nProvider);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
       child: Column(
@@ -39,7 +43,7 @@ class CanteenHelpBottomSheet extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                'Help & Contact',
+                s.helpTitle,
                 style: theme.textTheme.titleLarge
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
@@ -48,31 +52,30 @@ class CanteenHelpBottomSheet extends StatelessWidget {
           const SizedBox(height: 20),
           _HelpTile(
             icon: Icons.phone_rounded,
-            title: 'Call Canteen Admin',
-            subtitle: '+91 98765 43210',
+            title: s.helpCallAdmin,
+            subtitle: s.helpCallSub,
             color: AppColors.success,
             onTap: () {},
           ),
           const SizedBox(height: 10),
           _HelpTile(
             icon: Icons.restaurant_menu_rounded,
-            title: 'How to mark an order ready',
-            subtitle: 'Go to Verify tab → Scan student QR code',
+            title: s.helpMarkReady,
+            subtitle: s.helpMarkReadySub,
             color: AppColors.info,
           ),
           const SizedBox(height: 10),
           _HelpTile(
             icon: Icons.print_rounded,
-            title: 'How to print a slip',
-            subtitle:
-                'Open order card → Tap "Open Slip" → Tap "Mark Printed"',
+            title: s.helpPrintSlip,
+            subtitle: s.helpPrintSlipSub,
             color: AppColors.warning,
           ),
           const SizedBox(height: 10),
           _HelpTile(
             icon: Icons.schedule_rounded,
-            title: 'Scheduled orders',
-            subtitle: 'Appear in the Queue tab grouped by pickup time',
+            title: s.helpScheduled,
+            subtitle: s.helpScheduledSub,
             color: AppColors.statusScheduled,
           ),
           const SizedBox(height: 24),
@@ -80,7 +83,7 @@ class CanteenHelpBottomSheet extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+              child: Text(s.helpClose),
             ),
           ),
         ],

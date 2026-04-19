@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
+import 'package:campus_eats_ag/core/constants/app_design_tokens.dart';
 import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
@@ -35,10 +36,27 @@ class StudentOrdersScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('My Orders'),
           bottom: const TabBar(
-            indicatorWeight: 3,
             tabs: [
-              Tab(text: 'Active'),
-              Tab(text: 'Completed'),
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.radio_button_checked_rounded, size: 14),
+                    SizedBox(width: 6),
+                    Text('Active'),
+                  ],
+                ),
+              ),
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle_outline_rounded, size: 14),
+                    SizedBox(width: 6),
+                    Text('Completed'),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -46,13 +64,19 @@ class StudentOrdersScreen extends ConsumerWidget {
           children: [
             _OrderList(
               orders: active,
-              empty: 'No active orders',
+              emptyTitle: 'No active orders',
+              emptySubtitle:
+                  'Place an order from the menu and it will appear here.',
+              emptyIcon: Icons.shopping_bag_outlined,
               isActive: true,
               onRefresh: onRefresh,
             ),
             _OrderList(
               orders: completed,
-              empty: 'No completed orders',
+              emptyTitle: 'No completed orders',
+              emptySubtitle:
+                  'Completed and collected orders will show here.',
+              emptyIcon: Icons.check_circle_outline_rounded,
               isActive: false,
               onRefresh: onRefresh,
             ),
@@ -65,13 +89,17 @@ class StudentOrdersScreen extends ConsumerWidget {
 
 class _OrderList extends StatelessWidget {
   final List<Order> orders;
-  final String empty;
+  final String emptyTitle;
+  final String emptySubtitle;
+  final IconData emptyIcon;
   final bool isActive;
   final Future<void> Function() onRefresh;
 
   const _OrderList({
     required this.orders,
-    required this.empty,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.emptyIcon,
     required this.isActive,
     required this.onRefresh,
   });
@@ -84,11 +112,11 @@ class _OrderList extends StatelessWidget {
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
-            height: 400,
+            height: 420,
             child: EmptyState(
-              icon: Icons.receipt_long_rounded,
-              title: empty,
-              subtitle: 'Pull down to refresh',
+              icon: emptyIcon,
+              title: emptyTitle,
+              subtitle: emptySubtitle,
             ),
           ),
         ),
@@ -98,10 +126,11 @@ class _OrderList extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.xxxl),
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: orders.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 16),
+        separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
         itemBuilder: (ctx, i) =>
             _StudentOrderCard(order: orders[i], isActiveTab: isActive),
       ),
@@ -127,6 +156,7 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
     final order = widget.order;
 
     return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -137,42 +167,22 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Header row ────────────────────────────────────────────
           Row(
             children: [
               StatusChip(status: order.status),
               const Spacer(),
-              // Show scheduled or ETA time
               if (order.isScheduled && order.scheduledFor != null)
-                Row(
-                  children: [
-                    const Icon(Icons.schedule_rounded,
-                        size: 14, color: Color(0xFF00ACC1)),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Pickup ${AppUtils.formatTimeShort(order.scheduledFor!)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF00ACC1),
-                      ),
-                    ),
-                  ],
+                _TimeTag(
+                  icon: Icons.schedule_rounded,
+                  label: 'Pickup ${AppUtils.formatTimeShort(order.scheduledFor!)}',
+                  color: AppColors.statusScheduled,
                 )
               else if (order.isActive && order.estimatedReadyAt != null)
-                Row(
-                  children: [
-                    const Icon(Icons.timer_outlined,
-                        size: 14, color: Color(0xFFFF9800)),
-                    const SizedBox(width: 4),
-                    Text(
-                      order.etaLabel ?? '',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFFFF9800),
-                      ),
-                    ),
-                  ],
+                _TimeTag(
+                  icon: Icons.timer_outlined,
+                  label: order.etaLabel ?? '',
+                  color: AppColors.warning,
                 )
               else
                 Text(
@@ -181,39 +191,51 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
 
+          // ── Token (active only) ───────────────────────────────────
           if (widget.isActiveTab) ...[
-            Row(
-              children: [
-                Text(
-                  'Token: ',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
-                Text(
-                  '#${order.token}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
-                    color: theme.colorScheme.primary,
-                    letterSpacing: 1.5,
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.xs + 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Token  ',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant),
                   ),
-                ),
-              ],
+                  Text(
+                    '#${order.token}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 22,
+                      color: theme.colorScheme.primary,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
           ],
 
+          const SizedBox(height: AppSpacing.md),
+
+          // ── Items ─────────────────────────────────────────────────
           ...order.items.map((item) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(
                   children: [
                     Text(item.emoji, style: const TextStyle(fontSize: 14)),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
-                        '${item.quantity}x ${item.name}',
+                        '${item.quantity}× ${item.name}',
                         style: const TextStyle(
                             fontWeight: FontWeight.w500, fontSize: 14),
                         maxLines: 1,
@@ -230,47 +252,75 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
               )),
 
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
             child: Divider(height: 1, thickness: 1),
           ),
 
+          // ── Total row ─────────────────────────────────────────────
           Row(
             children: [
-              const Text('Total',
-                  style:
-                      TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              Text(
+                'Total',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
                 style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 17,
                   color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+                child: const Text(
+                  'PAID',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.success,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ),
             ],
           ),
 
+          // ── Active actions ────────────────────────────────────────
           if (widget.isActiveTab) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             if (_showQr) ...[
               Center(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
                     border: Border.all(color: AppColors.dividerLight),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: QrImageView(
                     data: order.qrContent,
                     version: QrVersions.auto,
-                    size: 140,
+                    size: 150,
                     backgroundColor: Colors.white,
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.lg),
             ],
             Row(
               children: [
@@ -281,15 +331,14 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                       _showQr
                           ? Icons.visibility_off_rounded
                           : Icons.qr_code_rounded,
-                      size: 18,
+                      size: 17,
                     ),
                     label: Text(_showQr ? 'Hide QR' : 'Show QR'),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+                        padding: const EdgeInsets.symmetric(vertical: 11)),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () {
@@ -299,36 +348,61 @@ class _StudentOrderCardState extends State<_StudentOrderCard> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                    label: const Text('Slip'),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 17),
+                    label: const Text('View Slip'),
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+                        padding: const EdgeInsets.symmetric(vertical: 11)),
                   ),
                 ),
               ],
             ),
           ] else ...[
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Spacer(),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            OrderDetailScreen(orderId: order.id, order: order),
-                      ),
-                    );
-                  },
-                  child: const Text('View Details'),
-                ),
-              ],
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          OrderDetailScreen(orderId: order.id, order: order),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text('View Details'),
+              ),
             ),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _TimeTag extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _TimeTag({required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }

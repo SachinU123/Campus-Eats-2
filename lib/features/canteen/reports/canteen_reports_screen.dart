@@ -1,6 +1,7 @@
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
 import 'package:intl/intl.dart';
@@ -23,14 +24,15 @@ class CanteenReportsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncReports = ref.watch(canteenReportsProvider);
     final theme = Theme.of(context);
+    final s = ref.watch(canteenL10nProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reports'),
+        title: Text(s.reports),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh reports',
+            tooltip: s.reportsRefresh,
             onPressed: () => ref.invalidate(canteenReportsProvider),
           ),
         ],
@@ -44,7 +46,7 @@ class CanteenReportsScreen extends ConsumerWidget {
               const Icon(Icons.bar_chart_rounded, size: 52, color: Colors.grey),
               const SizedBox(height: 12),
               Text(
-                'Could not load reports\n$e',
+                '${s.reportsLoadFail}\n$e',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium,
               ),
@@ -52,7 +54,7 @@ class CanteenReportsScreen extends ConsumerWidget {
               OutlinedButton.icon(
                 onPressed: () => ref.invalidate(canteenReportsProvider),
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Retry'),
+                label: Text(s.reportsRetry),
               ),
             ],
           ),
@@ -83,7 +85,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                 children: [
                   // ── Today ──────────────────────────────────────
                   Text(
-                    'Today — ${DateFormat('EEEE, d MMM').format(DateTime.now())}',
+                    s.reportsToday(DateFormat('EEEE, d MMM').format(DateTime.now())),
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
@@ -93,7 +95,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                       Expanded(
                         child: _KpiCard(
                           icon: Icons.receipt_long_rounded,
-                          label: "Today's Orders",
+                          label: s.reportsTodayOrders,
                           value: '$todayCount',
                           color: theme.colorScheme.primary,
                         ),
@@ -102,7 +104,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                       Expanded(
                         child: _KpiCard(
                           icon: Icons.currency_rupee_rounded,
-                          label: "Today's Revenue",
+                          label: s.reportsTodayRevenue,
                           value: 'Rs. ${todayRevenue.toInt()}',
                           color: const Color(0xFF2E7D32),
                         ),
@@ -114,7 +116,7 @@ class CanteenReportsScreen extends ConsumerWidget {
 
                   // ── This Month ─────────────────────────────────
                   Text(
-                    'This Month',
+                    s.reportsThisMonth,
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
@@ -153,7 +155,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                                     ),
                                   ),
                                   Text(
-                                    '$monthCount orders · avg ${avgDaily.toStringAsFixed(1)}/day',
+                                    s.reportsOrdersAvg(monthCount, avgDaily.toStringAsFixed(1)),
                                     style: theme.textTheme.bodySmall,
                                   ),
                                 ],
@@ -169,7 +171,7 @@ class CanteenReportsScreen extends ConsumerWidget {
 
                   // ── Top Items ──────────────────────────────────
                   Text(
-                    'Top Ordered Items',
+                    s.reportsTopItems,
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
@@ -181,7 +183,7 @@ class CanteenReportsScreen extends ConsumerWidget {
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Text(
-                            'No sales data yet',
+                            s.reportsNoSales,
                             style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant),
                           ),

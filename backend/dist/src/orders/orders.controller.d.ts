@@ -4,7 +4,7 @@ import { ApiResponse } from '../common/dto/api-response.dto.js';
 export declare class OrderController {
     private readonly orderService;
     constructor(orderService: OrderService);
-    createOrder(studentId: string, dto: CreateOrderDto): Promise<ApiResponse<{
+    createOrder(callerId: string, callerRole: string, dto: CreateOrderDto): Promise<ApiResponse<{
         items: ({
             menuItem: {
                 id: string;
@@ -19,6 +19,9 @@ export declare class OrderController {
                 price: number;
                 isVeg: boolean;
                 isAvailable: boolean;
+                isUnavailableToday: boolean;
+                isSpecial: boolean;
+                specialLabel: string;
                 prepTimeMinutes: number;
             };
         } & {
@@ -42,15 +45,31 @@ export declare class OrderController {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -60,9 +79,10 @@ export declare class OrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>>;
-    getMyOrders(studentId: string): Promise<ApiResponse<({
+    getMyOrders(callerId: string, callerRole: string): Promise<ApiResponse<({
         items: {
             id: string;
             createdAt: Date;
@@ -81,9 +101,9 @@ export declare class OrderController {
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -94,10 +114,12 @@ export declare class OrderController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -107,8 +129,12 @@ export declare class OrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     })[]>>;
+    registerFcmToken(userId: string, userRole: string, body: {
+        token: string;
+    }): Promise<ApiResponse<{}>>;
     getOrderById(id: string): Promise<ApiResponse<{
         items: {
             id: string;
@@ -131,16 +157,17 @@ export declare class OrderController {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -158,10 +185,12 @@ export declare class OrderController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -171,6 +200,7 @@ export declare class OrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>>;
     getSlip(id: string): Promise<ApiResponse<{
@@ -202,16 +232,24 @@ export declare class CanteenOrderController {
             phoneNumber: string;
             name: string;
             email: string;
-        };
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            email: string;
+            department: string;
+            roomNumber: string;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -222,10 +260,12 @@ export declare class CanteenOrderController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -235,8 +275,13 @@ export declare class CanteenOrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     })[]>>;
+    pollOrders(): Promise<ApiResponse<{
+        count: number;
+        latestOrderedAt: string | null;
+    }>>;
     getOrderById(id: string): Promise<ApiResponse<{
         items: {
             id: string;
@@ -259,16 +304,17 @@ export declare class CanteenOrderController {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
         paymentTransaction: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: string;
             orderId: string;
-            razorpayPaymentId: string | null;
             gateway: string;
             razorpayOrderId: string | null;
+            razorpayPaymentId: string | null;
             razorpaySignature: string | null;
             amount: number;
             currency: string;
@@ -286,10 +332,12 @@ export declare class CanteenOrderController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -299,6 +347,7 @@ export declare class CanteenOrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>>;
     getSlip(id: string): Promise<ApiResponse<{
@@ -308,7 +357,14 @@ export declare class CanteenOrderController {
         printablePayloadJson: import("@prisma/client/runtime/client").JsonValue;
         generatedAt: Date;
     }>>;
-    completeOrder(id: string, dto: UpdateOrderStatusDto): Promise<ApiResponse<{
+    verifyOrder(body: {
+        token: string;
+    }, canteenUserId: string): Promise<ApiResponse<{
+        found: boolean;
+        reason: string;
+        message: string;
+    }>>;
+    completeOrder(id: string, dto: UpdateOrderStatusDto): Promise<ApiResponse<({
         items: {
             id: string;
             createdAt: Date;
@@ -330,15 +386,31 @@ export declare class CanteenOrderController {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -348,8 +420,9 @@ export declare class CanteenOrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
-    }>>;
+    }) | null>>;
     printOrder(id: string): Promise<ApiResponse<{
         items: {
             id: string;
@@ -372,15 +445,31 @@ export declare class CanteenOrderController {
             updatedAt: Date;
             email: string;
             passwordHash: string;
-        };
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        studentId: string;
+        studentId: string | null;
+        facultyId: string | null;
         notes: string | null;
         scheduledFor: Date | null;
         status: string;
+        customerRole: string;
         tokenNumber: string;
         subtotal: number;
         total: number;
@@ -390,6 +479,66 @@ export declare class CanteenOrderController {
         orderedAt: Date;
         completedAt: Date | null;
         printedAt: Date | null;
+        readyAt: Date | null;
+        hiddenFromCanteenAt: Date | null;
+    }>>;
+    markOrderReady(id: string): Promise<ApiResponse<{
+        items: {
+            id: string;
+            createdAt: Date;
+            emoji: string;
+            isVeg: boolean;
+            menuItemId: string;
+            quantity: number;
+            itemNameSnapshot: string;
+            unitPriceSnapshot: number;
+            lineTotal: number;
+            orderId: string;
+        }[];
+        student: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+        } | null;
+        faculty: {
+            id: string;
+            phoneNumber: string;
+            name: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            email: string;
+            passwordHash: string;
+            fcmToken: string | null;
+            department: string;
+            roomNumber: string;
+        } | null;
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        studentId: string | null;
+        facultyId: string | null;
+        notes: string | null;
+        scheduledFor: Date | null;
+        status: string;
+        customerRole: string;
+        tokenNumber: string;
+        subtotal: number;
+        total: number;
+        paymentStatus: string;
+        paymentMethod: string | null;
+        estimatedReadyAt: Date | null;
+        orderedAt: Date;
+        completedAt: Date | null;
+        printedAt: Date | null;
+        readyAt: Date | null;
         hiddenFromCanteenAt: Date | null;
     }>>;
 }

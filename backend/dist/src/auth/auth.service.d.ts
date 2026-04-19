@@ -1,7 +1,7 @@
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { StudentRegisterDto, StudentLoginDto, CanteenRequestOtpDto, CanteenVerifyOtpDto, RefreshTokenDto } from './dto/auth.dto.js';
+import { StudentRegisterDto, StudentLoginDto, FacultyRegisterDto, FacultyLoginDto, CanteenRequestOtpDto, CanteenVerifyOtpDto, RefreshTokenDto } from './dto/auth.dto.js';
 export declare class AuthService {
     private readonly prisma;
     private readonly jwt;
@@ -30,6 +30,32 @@ export declare class AuthService {
             role: string;
         };
     }>;
+    registerFaculty(dto: FacultyRegisterDto): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: {
+            id: any;
+            email: any;
+            name: any;
+            phoneNumber: any;
+            department: any;
+            roomNumber: any;
+            role: string;
+        };
+    }>;
+    loginFaculty(dto: FacultyLoginDto): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: {
+            id: any;
+            email: any;
+            name: any;
+            phoneNumber: any;
+            department: any;
+            roomNumber: any;
+            role: string;
+        };
+    }>;
     requestCanteenOtp(dto: CanteenRequestOtpDto): Promise<{
         devOtp?: string | undefined;
         message: string;
@@ -43,6 +69,7 @@ export declare class AuthService {
             name: string;
             phoneNumber: string;
             role: string;
+            canteenRole: string;
         };
     }>;
     refreshToken(dto: RefreshTokenDto): Promise<{
@@ -68,4 +95,5 @@ export declare class AuthService {
     private createSession;
     private hashToken;
     private sanitizeStudent;
+    private sanitizeFaculty;
 }

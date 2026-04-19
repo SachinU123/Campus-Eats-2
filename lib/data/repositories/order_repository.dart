@@ -115,6 +115,22 @@ class OrderRepository {
     return (data?['cleared'] as int?) ?? 0;
   }
 
+  /// Lightweight poll — returns { count, latestOrderedAt } only.
+  /// Used by the smart-poll mechanism to detect new orders without
+  /// fetching the full order list on every tick.
+  Future<({int count, String? latestOrderedAt})> pollOrderQueue() async {
+    final result = await _api.get('/canteen/orders/poll');
+    if (!result.isSuccess) {
+      dev.log('[POLL] poll failed: ${result.message}', name: 'OrderRepo');
+      return (count: 0, latestOrderedAt: null);
+    }
+    final data = result.data as Map<String, dynamic>? ?? {};
+    return (
+      count: (data['count'] as int?) ?? 0,
+      latestOrderedAt: data['latestOrderedAt'] as String?,
+    );
+  }
+
   Future<void> updateStatus(String orderId, String newStatus) async {
     final result = await _api.patch('/canteen/orders/$orderId/complete', body: {
       'status': newStatus,
@@ -141,6 +157,66 @@ class OrderRepository {
     } else {
       throw Exception(result.message);
     }
+  }
+
+  /// Mark an order as READY for pickup (Phase 11).
+  /// Separate from printedAt and completedAt.
+  /// Triggers a push notification to the customer via backend.
+  Future<void> markReady(String orderId) async {
+    final result = await _api.patch('/canteen/orders/$orderId/ready', body: {});
+    if (result.isSuccess) {
+      final index = _orders.indexWhere((o) => o.id == orderId);
+      if (index >= 0) {
+        _orders[index] = _orders[index].copyWith(readyAt: DateTime.now());
+      }
+    } else {
+      throw Exception(result.message);
+    }
+  }
+
+  /// Verify an order by token (or QR content) via backend.
+  /// Returns a map with keys: found, reason, message, and optionally order.
+  /// Reasons: TOKEN_NOT_FOUND, INVALID_TOKEN, NOT_PAID, CANCELLED,
+  ///          ALREADY_COMPLETED, COMPLETED
+  Future<VerifyResult> verifyByToken(String rawToken) async {
+    // Support QR format: ORDER_CE-TOKEN_XXXX or just the 4-digit token
+    final token = _extractToken(rawToken);
+
+    final result = await _api.post('/canteen/orders/verify', body: {'token': token});
+    if (!result.isSuccess) {
+      return VerifyResult(
+        found: false,
+        reason: 'API_ERROR',
+        message: result.message,
+      );
+    }
+
+    final data = result.data as Map<String, dynamic>;
+    final found = data['found'] as bool? ?? false;
+    final reason = data['reason'] as String? ?? 'UNKNOWN';
+    final message = data['message'] as String? ?? '';
+    Order? order;
+    if (found && data['order'] != null) {
+      try {
+        order = _parseOrder(data['order'] as Map<String, dynamic>);
+      } catch (_) {}
+    }
+
+    return VerifyResult(found: found, reason: reason, message: message, order: order);
+  }
+
+  /// Extract a 4-digit token from a QR content string or bare token.
+  /// QR format: ORDER_CE-TOKEN_XXXX or ORDER_CE-XXXX_TOKEN_XXXX
+  String _extractToken(String raw) {
+    final trimmed = raw.trim();
+    // Try to extract 4-digit token from the QR content
+    // Format: ORDER_CE-TOKEN_XXXX_TOKEN_XXXX  or  ORDER_CE-XXXX_TOKEN_XXXX
+    final tokenMatch = RegExp(r'TOKEN_(\d{4})').firstMatch(trimmed);
+    if (tokenMatch != null) return tokenMatch.group(1)!;
+    // If pure 4-digit number, use as-is
+    if (RegExp(r'^\d{4}$').hasMatch(trimmed)) return trimmed;
+    // Otherwise return as-is (backend will reject invalid)
+    return trimmed;
   }
 
   List<Order> getByStudent(String studentId) =>
@@ -172,6 +248,7 @@ class OrderRepository {
       return o.token.contains(q) ||
           o.id.toLowerCase().contains(q) ||
           o.studentName.toLowerCase().contains(q) ||
+          o.facultyName.toLowerCase().contains(q) ||
           o.items.any((i) => i.name.toLowerCase().contains(q));
     }).toList();
   }
@@ -182,6 +259,8 @@ class OrderRepository {
     final token = data['tokenNumber'] as String? ?? '';
     final id = data['id'] as String;
     final studentData = data['student'] as Map<String, dynamic>?;
+    final facultyData = data['faculty'] as Map<String, dynamic>?;
+    final customerRole = data['customerRole'] as String? ?? 'student';
 
     // Parse schedule / ETA fields — backend sends UTC ISO strings.
     // Call .toLocal() explicitly so all DateTime values are in device-local
@@ -198,12 +277,22 @@ class OrderRepository {
         (DateTime.tryParse(data['orderedAt'] as String? ?? '') ?? DateTime.now())
             .toLocal();
 
+    // Determine display name: for faculty orders use faculty name; for students use student name.
+    final isFaculty = customerRole == 'faculty';
+    final displayName = isFaculty
+        ? (facultyData?['name'] as String? ?? '')
+        : (studentData?['name'] as String? ?? '');
+
     return Order(
       id: id,
       token: token,
       studentId: data['studentId'] as String? ?? '',
-      studentName: studentData?['name'] as String? ?? '',
+      studentName: displayName,
       studentDept: '',
+      customerRole: customerRole,
+      facultyName: facultyData?['name'] as String? ?? '',
+      facultyRoom: facultyData?['roomNumber'] as String? ?? '',
+      facultyDept: facultyData?['department'] as String? ?? '',
       items: _parseItems(data['items'] as List? ?? []),
       total: (data['total'] as num?)?.toDouble() ?? 0,
       paymentMethod: data['paymentMethod'] as String? ?? 'razorpay',
@@ -215,6 +304,9 @@ class OrderRepository {
       qrContent: 'ORDER_CE-${token}_TOKEN_$token',
       printedAt: data['printedAt'] != null
           ? DateTime.tryParse(data['printedAt'] as String)?.toLocal()
+          : null,
+      readyAt: data['readyAt'] != null
+          ? DateTime.tryParse(data['readyAt'] as String)?.toLocal()
           : null,
     );
   }
@@ -250,6 +342,29 @@ class OrderRepository {
         return backendStatus;
     }
   }
+}
+
+// ─── Verify Result ─────────────────────────────────────────────
+
+class VerifyResult {
+  final bool found;
+  final String reason;
+  final String message;
+  final Order? order;
+
+  const VerifyResult({
+    required this.found,
+    required this.reason,
+    required this.message,
+    this.order,
+  });
+
+  bool get isCompleted => reason == 'COMPLETED';
+  bool get isAlreadyCompleted => reason == 'ALREADY_COMPLETED';
+  bool get isNotFound => reason == 'TOKEN_NOT_FOUND';
+  bool get isInvalid => reason == 'INVALID_TOKEN' || reason == 'API_ERROR';
+  bool get isNotPaid => reason == 'NOT_PAID';
+  bool get isCancelled => reason == 'CANCELLED';
 }
 
 // ─── Providers ─────────────────────────────────────────────────
@@ -310,6 +425,8 @@ class OrderNotifier extends Notifier<List<Order>> {
   List<Order> getActive() => _repo.getActive();
   List<Order> getCompleted() => _repo.getCompleted();
   Order? findByToken(String token) => _repo.findByToken(token);
+  Future<VerifyResult> verifyByToken(String rawToken) =>
+      _repo.verifyByToken(rawToken);
   Order? findById(String id) => _repo.findById(id);
   List<Order> search(String q) => _repo.search(q);
 }

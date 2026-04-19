@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const core_1 = require("@nestjs/core");
 const common_1 = require("@nestjs/common");
 const app_module_js_1 = require("./app.module.js");
+const all_exceptions_filter_js_1 = require("./common/filters/all-exceptions.filter.js");
 const httpLogger = new common_1.Logger('HTTP');
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_js_1.AppModule);
@@ -20,6 +21,7 @@ async function bootstrap() {
         forbidNonWhitelisted: true,
         transform: true,
     }));
+    app.useGlobalFilters(new all_exceptions_filter_js_1.AllExceptionsFilter());
     app.enableCors({
         origin: '*',
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',

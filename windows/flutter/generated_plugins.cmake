@@ -4,9 +4,13 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
+  firebase_core
+  printing
+  unified_esc_pos_printer
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  libserialport_plus
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

@@ -46,37 +46,58 @@ class MenuRepository {
     final result = await _api.get(path);
     if (!result.isSuccess || result.data is! List) return [];
 
-    return (result.data as List).map((e) {
-      final m = e as Map<String, dynamic>;
-      final cat = m['category'] as Map<String, dynamic>?;
-      return MenuItem(
-        id: m['id'] as String,
-        categoryId: m['categoryId'] as String? ?? cat?['slug'] as String? ?? '',
-        name: m['name'] as String,
-        description: m['description'] as String? ?? '',
-        price: (m['price'] as num).toDouble(),
-        isVeg: m['isVeg'] as bool? ?? true,
-        isPopular: m['isPopular'] as bool? ?? false,
-        isAvailable: m['isAvailable'] as bool? ?? true,
-        imageUrl: m['imageUrl'] as String? ?? '',
-        emoji: m['emoji'] as String? ?? '',
-      );
-    }).toList();
+    return (result.data as List).map((e) => _parseItem(e as Map<String, dynamic>)).toList();
   }
 
   Future<MenuItem?> getItemById(String id) async {
     final result = await _api.get('/menu/items/$id');
     if (!result.isSuccess) return null;
-    final m = result.data as Map<String, dynamic>;
+    return _parseItem(result.data as Map<String, dynamic>);
+  }
+
+  /// Phase 6: Fetch full item list for canteen management (includes unavailable today).
+  /// Requires canteen auth — call only from canteen-authenticated context.
+  Future<List<MenuItem>> getManagementItems() async {
+    final result = await _api.get('/menu/manage');
+    if (!result.isSuccess || result.data is! List) return [];
+    return (result.data as List).map((e) => _parseItem(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Phase 6: Mark an item unavailable/available for today.
+  Future<MenuItem?> setUnavailableToday(String itemId, {required bool isUnavailableToday}) async {
+    final result = await _api.patch(
+      '/menu/items/$itemId/availability',
+      body: {'isUnavailableToday': isUnavailableToday},
+    );
+    if (!result.isSuccess || result.data == null) return null;
+    return _parseItem(result.data as Map<String, dynamic>);
+  }
+
+  /// Phase 6: Mark/unmark an item as special/event food.
+  Future<MenuItem?> setSpecial(String itemId, {required bool isSpecial, String? specialLabel}) async {
+    final body = <String, dynamic>{'isSpecial': isSpecial};
+    if (specialLabel != null) body['specialLabel'] = specialLabel;
+    final result = await _api.patch('/menu/items/$itemId/special', body: body);
+    if (!result.isSuccess || result.data == null) return null;
+    return _parseItem(result.data as Map<String, dynamic>);
+  }
+
+  // ── Helper ─────────────────────────────────────────────────────
+
+  MenuItem _parseItem(Map<String, dynamic> m) {
+    final cat = m['category'] as Map<String, dynamic>?;
     return MenuItem(
       id: m['id'] as String,
-      categoryId: m['categoryId'] as String? ?? '',
+      categoryId: m['categoryId'] as String? ?? cat?['id'] as String? ?? '',
       name: m['name'] as String,
       description: m['description'] as String? ?? '',
       price: (m['price'] as num).toDouble(),
       isVeg: m['isVeg'] as bool? ?? true,
       isPopular: m['isPopular'] as bool? ?? false,
       isAvailable: m['isAvailable'] as bool? ?? true,
+      isUnavailableToday: m['isUnavailableToday'] as bool? ?? false,
+      isSpecial: m['isSpecial'] as bool? ?? false,
+      specialLabel: m['specialLabel'] as String? ?? '',
       imageUrl: m['imageUrl'] as String? ?? '',
       emoji: m['emoji'] as String? ?? '',
     );

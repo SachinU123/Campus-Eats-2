@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/connectivity_repository.dart';
 
@@ -8,11 +9,20 @@ class CanteenShell extends ConsumerWidget {
   final Widget child;
   const CanteenShell({super.key, required this.child});
 
-  static const _tabs = [
-    (path: '/canteen', icon: Icons.qr_code_scanner_rounded, label: 'Verify'),
-    (path: '/canteen/orders', icon: Icons.list_alt_rounded, label: 'Orders'),
-    (path: '/canteen/reports', icon: Icons.bar_chart_rounded, label: 'Reports'),
-    (path: '/canteen/profile', icon: Icons.person_outline_rounded, label: 'Profile'),
+  static const _tabPaths = [
+    '/canteen',
+    '/canteen/orders',
+    '/canteen/menu',
+    '/canteen/reports',
+    '/canteen/profile',
+  ];
+
+  static const _tabIcons = [
+    Icons.qr_code_scanner_rounded,
+    Icons.list_alt_rounded,
+    Icons.menu_book_rounded,
+    Icons.bar_chart_rounded,
+    Icons.person_outline_rounded,
   ];
 
   @override
@@ -20,11 +30,20 @@ class CanteenShell extends ConsumerWidget {
     final location = GoRouterState.of(context).matchedLocation;
     final connectivity = ref.watch(connectivityProvider);
     final isOffline = connectivity == ConnectivityStatus.offline;
+    final s = ref.watch(canteenL10nProvider);
+
+    final tabLabels = [
+      s.navVerify,
+      s.navOrders,
+      s.navMenu,
+      s.navReports,
+      s.navProfile,
+    ];
 
     // Determine selected tab index
     int currentIndex = 0;
-    for (int i = _tabs.length - 1; i >= 0; i--) {
-      if (location.startsWith(_tabs[i].path)) {
+    for (int i = _tabPaths.length - 1; i >= 0; i--) {
+      if (location.startsWith(_tabPaths[i])) {
         currentIndex = i;
         break;
       }
@@ -41,10 +60,14 @@ class CanteenShell extends ConsumerWidget {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
-        onDestinationSelected: (i) => context.go(_tabs[i].path),
-        destinations: _tabs
-            .map((t) => NavigationDestination(icon: Icon(t.icon), label: t.label))
-            .toList(),
+        onDestinationSelected: (i) => context.go(_tabPaths[i]),
+        destinations: List.generate(
+          _tabPaths.length,
+          (i) => NavigationDestination(
+            icon: Icon(_tabIcons[i]),
+            label: tabLabels[i],
+          ),
+        ),
       ),
     );
   }

@@ -1,10 +1,9 @@
 import { AuthService } from './auth.service.js';
-import { StudentRegisterDto, StudentLoginDto, CanteenRequestOtpDto, CanteenVerifyOtpDto, RefreshTokenDto, LogoutDto } from './dto/auth.dto.js';
-import { ApiResponse } from '../common/dto/api-response.dto.js';
+import { StudentRegisterDto, StudentLoginDto, FacultyRegisterDto, FacultyLoginDto, CanteenRequestOtpDto, CanteenVerifyOtpDto, RefreshTokenDto, LogoutDto } from './dto/auth.dto.js';
 export declare class AuthController {
     private readonly authService;
     constructor(authService: AuthService);
-    studentRegister(dto: StudentRegisterDto): Promise<ApiResponse<{
+    studentRegister(dto: StudentRegisterDto): Promise<{
         accessToken: string;
         refreshToken: string;
         user: {
@@ -14,8 +13,8 @@ export declare class AuthController {
             phoneNumber: any;
             role: string;
         };
-    }>>;
-    studentLogin(dto: StudentLoginDto): Promise<ApiResponse<{
+    }>;
+    studentLogin(dto: StudentLoginDto): Promise<{
         accessToken: string;
         refreshToken: string;
         user: {
@@ -25,13 +24,39 @@ export declare class AuthController {
             phoneNumber: any;
             role: string;
         };
-    }>>;
-    canteenRequestOtp(dto: CanteenRequestOtpDto): Promise<ApiResponse<{
+    }>;
+    facultyRegister(dto: FacultyRegisterDto): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: {
+            id: any;
+            email: any;
+            name: any;
+            phoneNumber: any;
+            department: any;
+            roomNumber: any;
+            role: string;
+        };
+    }>;
+    facultyLogin(dto: FacultyLoginDto): Promise<{
+        accessToken: string;
+        refreshToken: string;
+        user: {
+            id: any;
+            email: any;
+            name: any;
+            phoneNumber: any;
+            department: any;
+            roomNumber: any;
+            role: string;
+        };
+    }>;
+    requestCanteenOtp(dto: CanteenRequestOtpDto): Promise<{
         devOtp?: string | undefined;
         message: string;
         phoneNumber: string;
-    }>>;
-    canteenVerifyOtp(dto: CanteenVerifyOtpDto): Promise<ApiResponse<{
+    }>;
+    verifyCanteenOtp(dto: CanteenVerifyOtpDto): Promise<{
         accessToken: string;
         refreshToken: string;
         user: {
@@ -39,16 +64,17 @@ export declare class AuthController {
             name: string;
             phoneNumber: string;
             role: string;
+            canteenRole: string;
         };
-    }>>;
-    refresh(dto: RefreshTokenDto): Promise<ApiResponse<{
+    }>;
+    refresh(dto: RefreshTokenDto): Promise<{
         accessToken: string;
         refreshToken: string;
-    }>>;
-    logout(dto: LogoutDto): Promise<ApiResponse<{
+    }>;
+    logout(dto: LogoutDto): Promise<{
         message: string;
-    }>>;
-    getProfile(user: any): Promise<ApiResponse<{
+    }>;
+    getProfile(req: any): Promise<{
         id: any;
         email: any;
         name: any;
@@ -59,5 +85,5 @@ export declare class AuthController {
         name: string;
         phoneNumber: string;
         role: string;
-    }>>;
+    }>;
 }

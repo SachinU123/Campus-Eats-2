@@ -17,52 +17,49 @@ const common_1 = require("@nestjs/common");
 const auth_service_js_1 = require("./auth.service.js");
 const auth_dto_js_1 = require("./dto/auth.dto.js");
 const jwt_auth_guard_js_1 = require("../common/guards/jwt-auth.guard.js");
-const current_user_decorator_js_1 = require("../common/decorators/current-user.decorator.js");
-const api_response_dto_js_1 = require("../common/dto/api-response.dto.js");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
         this.authService = authService;
     }
     async studentRegister(dto) {
-        const result = await this.authService.registerStudent(dto);
-        return api_response_dto_js_1.ApiResponse.ok(result, 'Registration successful');
+        return this.authService.registerStudent(dto);
     }
     async studentLogin(dto) {
-        const result = await this.authService.loginStudent(dto);
-        return api_response_dto_js_1.ApiResponse.ok(result, 'Login successful');
+        return this.authService.loginStudent(dto);
     }
-    async canteenRequestOtp(dto) {
-        const result = await this.authService.requestCanteenOtp(dto);
-        return api_response_dto_js_1.ApiResponse.ok(result, result.message);
+    async facultyRegister(dto) {
+        return this.authService.registerFaculty(dto);
     }
-    async canteenVerifyOtp(dto) {
-        const result = await this.authService.verifyCanteenOtp(dto);
-        return api_response_dto_js_1.ApiResponse.ok(result, 'OTP verified successfully');
+    async facultyLogin(dto) {
+        return this.authService.loginFaculty(dto);
+    }
+    async requestCanteenOtp(dto) {
+        return this.authService.requestCanteenOtp(dto);
+    }
+    async verifyCanteenOtp(dto) {
+        return this.authService.verifyCanteenOtp(dto);
     }
     async refresh(dto) {
-        const tokens = await this.authService.refreshToken(dto);
-        return api_response_dto_js_1.ApiResponse.ok(tokens, 'Token refreshed');
+        return this.authService.refreshToken(dto);
     }
     async logout(dto) {
-        const result = await this.authService.logout(dto.refreshToken);
-        return api_response_dto_js_1.ApiResponse.ok(result, result.message);
+        return this.authService.logout(dto.refreshToken);
     }
-    async getProfile(user) {
-        const profile = await this.authService.getProfile(user.sub, user.role);
-        return api_response_dto_js_1.ApiResponse.ok(profile, 'Profile retrieved');
+    async getProfile(req) {
+        return this.authService.getProfile(req.user.sub, req.user.role);
     }
 };
 exports.AuthController = AuthController;
 __decorate([
-    (0, common_1.Post)('student/register'),
+    (0, common_1.Post)('register'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [auth_dto_js_1.StudentRegisterDto]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "studentRegister", null);
 __decorate([
-    (0, common_1.Post)('student/login'),
+    (0, common_1.Post)('login'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
@@ -70,13 +67,28 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "studentLogin", null);
 __decorate([
+    (0, common_1.Post)('faculty/register'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [auth_dto_js_1.FacultyRegisterDto]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "facultyRegister", null);
+__decorate([
+    (0, common_1.Post)('faculty/login'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [auth_dto_js_1.FacultyLoginDto]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "facultyLogin", null);
+__decorate([
     (0, common_1.Post)('canteen/request-otp'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [auth_dto_js_1.CanteenRequestOtpDto]),
     __metadata("design:returntype", Promise)
-], AuthController.prototype, "canteenRequestOtp", null);
+], AuthController.prototype, "requestCanteenOtp", null);
 __decorate([
     (0, common_1.Post)('canteen/verify-otp'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
@@ -84,7 +96,7 @@ __decorate([
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [auth_dto_js_1.CanteenVerifyOtpDto]),
     __metadata("design:returntype", Promise)
-], AuthController.prototype, "canteenVerifyOtp", null);
+], AuthController.prototype, "verifyCanteenOtp", null);
 __decorate([
     (0, common_1.Post)('refresh'),
     (0, common_1.HttpCode)(common_1.HttpStatus.OK),
@@ -104,7 +116,7 @@ __decorate([
 __decorate([
     (0, common_1.Get)('me'),
     (0, common_1.UseGuards)(jwt_auth_guard_js_1.JwtAuthGuard),
-    __param(0, (0, current_user_decorator_js_1.CurrentUser)()),
+    __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)

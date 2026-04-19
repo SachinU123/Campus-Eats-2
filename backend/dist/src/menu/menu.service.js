@@ -23,7 +23,10 @@ let MenuService = class MenuService {
         });
     }
     async getItems(categoryId) {
-        const where = { isAvailable: true };
+        const where = {
+            isAvailable: true,
+            isUnavailableToday: false,
+        };
         if (categoryId && categoryId !== 'all') {
             if (categoryId === 'popular') {
                 where.isPopular = true;
@@ -35,7 +38,7 @@ let MenuService = class MenuService {
         return this.prisma.menuItem.findMany({
             where,
             include: { category: true },
-            orderBy: { name: 'asc' },
+            orderBy: [{ isSpecial: 'desc' }, { name: 'asc' }],
         });
     }
     async getItemById(id) {
@@ -48,13 +51,63 @@ let MenuService = class MenuService {
         return this.prisma.menuItem.findMany({
             where: {
                 isAvailable: true,
+                isUnavailableToday: false,
                 OR: [
                     { name: { contains: query, mode: 'insensitive' } },
                     { description: { contains: query, mode: 'insensitive' } },
                 ],
             },
             include: { category: true },
+            orderBy: [{ isSpecial: 'desc' }, { name: 'asc' }],
         });
+    }
+    async getAllItemsForManagement() {
+        return this.prisma.menuItem.findMany({
+            include: { category: true },
+            orderBy: [{ categoryId: 'asc' }, { name: 'asc' }],
+        });
+    }
+    async setUnavailableToday(id, isUnavailableToday) {
+        const item = await this.prisma.menuItem.findUnique({ where: { id } });
+        if (!item)
+            throw new common_1.NotFoundException(`Menu item ${id} not found`);
+        return this.prisma.menuItem.update({
+            where: { id },
+            data: { isUnavailableToday },
+            include: { category: true },
+        });
+    }
+    async setSpecial(id, isSpecial, specialLabel) {
+        const item = await this.prisma.menuItem.findUnique({ where: { id } });
+        if (!item)
+            throw new common_1.NotFoundException(`Menu item ${id} not found`);
+        return this.prisma.menuItem.update({
+            where: { id },
+            data: {
+                isSpecial,
+                specialLabel: isSpecial ? (specialLabel ?? item.specialLabel ?? "Today's Special") : '',
+            },
+            include: { category: true },
+        });
+    }
+    async checkItemsOrderable(ids) {
+        const items = await this.prisma.menuItem.findMany({
+            where: { id: { in: ids } },
+        });
+        const blocked = [];
+        for (const id of ids) {
+            const item = items.find((m) => m.id === id);
+            if (!item) {
+                blocked.push({ id, name: 'Unknown', reason: 'Item not found' });
+            }
+            else if (!item.isAvailable) {
+                blocked.push({ id, name: item.name, reason: 'Item is permanently unavailable' });
+            }
+            else if (item.isUnavailableToday) {
+                blocked.push({ id, name: item.name, reason: 'Item is unavailable today' });
+            }
+        }
+        return blocked;
     }
 };
 exports.MenuService = MenuService;

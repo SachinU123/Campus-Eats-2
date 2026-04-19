@@ -1,5 +1,9 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
+    // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
@@ -32,9 +36,19 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug keys for now — replace with proper keystore before Play Store.
             signingConfig = signingConfigs.getByName("debug")
+
+            // ── Size / Security optimisations ──────────────────────────────
+            // R8 removes unused Kotlin/Java code (tree-shaking on the JVM side).
+            // shrinkResources removes unused drawables/layouts that R8 references.
+            // Both are safe for Flutter apps with the stock proguard rules.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

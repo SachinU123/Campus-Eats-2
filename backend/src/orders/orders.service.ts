@@ -6,19 +6,41 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateOrderDto, UpdateOrderStatusDto } from './dto/order.dto.js';
+import { SettingsService } from '../settings/settings.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ─── Create Order ───────────────────────────────────────────
 
-  async createOrder(studentId: string, dto: CreateOrderDto) {
+  async createOrder(
+    callerId: string,
+    dto: CreateOrderDto,
+    callerRole: 'student' | 'faculty' = 'student',
+  ) {
     this.logger.log(
-      `[ORDER] createOrder for student: ${studentId}, items: ${JSON.stringify(dto.items)}`,
+      `[ORDER] createOrder for ${callerRole}: ${callerId}, items: ${JSON.stringify(dto.items)}`,
     );
+
+    // ── Phase 7: Enforce canteen operational status ─────────────
+    const isOpen = await this.settings.isOrderingOpen();
+    if (!isOpen) {
+      const status = await this.settings.getCanteenStatus();
+      const reason = status.message
+        ? status.message
+        : status.status === 'paused'
+          ? 'The canteen is temporarily paused. Please try again later.'
+          : 'The canteen is currently closed for new orders.';
+      throw new BadRequestException(`Ordering is currently disabled: ${reason}`);
+    }
 
     // ── Schedule validation ──────────────────────────────────
     let scheduledFor: Date | null = null;
@@ -50,19 +72,38 @@ export class OrderService {
     // ── Validate and fetch menu items ────────────────────────
     const menuItemIds = dto.items.map((item) => item.menuItemId);
     const menuItems = await this.prisma.menuItem.findMany({
-      where: { id: { in: menuItemIds }, isAvailable: true },
+      where: { id: { in: menuItemIds } },
     });
 
-    if (menuItems.length !== menuItemIds.length) {
-      const foundIds = menuItems.map((m) => m.id);
-      const missing = menuItemIds.filter((id) => !foundIds.includes(id));
+    // Phase 6: Check each item separately for clear error messages
+    const blockedItems: string[] = [];
+    const foundMap = new Map(menuItems.map((m) => [m.id, m]));
+
+    for (const id of menuItemIds) {
+      const item = foundMap.get(id);
+      if (!item) {
+        blockedItems.push(`${id} (not found)`);
+      } else if (!item.isAvailable) {
+        blockedItems.push(`${item.name} (permanently unavailable)`);
+      } else if (item.isUnavailableToday) {
+        blockedItems.push(`${item.name} (unavailable today)`);
+      }
+    }
+
+    if (blockedItems.length > 0) {
       throw new BadRequestException(
-        `Menu items not found or unavailable: ${missing.join(', ')}`,
+        `Some items cannot be ordered: ${blockedItems.join(', ')}`,
       );
     }
 
+    // All items are orderable — keep only the validated set
+    const validMenuItems = menuItems.filter(
+      (m) => m.isAvailable && !m.isUnavailableToday,
+    );
+
+
     // ── Calculate server-side totals ─────────────────────────
-    const menuMap = new Map(menuItems.map((m) => [m.id, m]));
+    const menuMap = new Map(validMenuItems.map((m) => [m.id, m]));
     let subtotal = 0;
     const orderItems = dto.items.map((item) => {
       const menu = menuMap.get(item.menuItemId)!;
@@ -85,7 +126,7 @@ export class OrderService {
     let estimatedReadyAt: Date | null = null;
     if (!scheduledFor) {
       const maxPrepMinutes = Math.max(
-        ...menuItems.map((m) => m.prepTimeMinutes ?? 5),
+        ...validMenuItems.map((m) => m.prepTimeMinutes ?? 5),
       );
       const buffer = 5; // standard kitchen buffer
 
@@ -109,7 +150,9 @@ export class OrderService {
     // ── Create order ──────────────────────────────────────────
     const order = await this.prisma.order.create({
       data: {
-        studentId,
+        ...(callerRole === 'faculty'
+          ? { facultyId: callerId, customerRole: 'faculty' }
+          : { studentId: callerId, customerRole: 'student' }),
         tokenNumber,
         status: 'created',
         subtotal,
@@ -125,17 +168,29 @@ export class OrderService {
       include: {
         items: { include: { menuItem: true } },
         student: true,
+        faculty: true,
       },
     });
 
     return order;
   }
 
-  // ─── Get Student Orders ─────────────────────────────────────
-
   async getStudentOrders(studentId: string) {
     return this.prisma.order.findMany({
       where: { studentId },
+      include: {
+        items: true,
+        paymentTransaction: true,
+      },
+      orderBy: { orderedAt: 'desc' },
+    });
+  }
+
+  // ─── Get Faculty Orders ─────────────────────────────────────
+
+  async getFacultyOrders(facultyId: string) {
+    return this.prisma.order.findMany({
+      where: { facultyId },
       include: {
         items: true,
         paymentTransaction: true,
@@ -182,6 +237,9 @@ export class OrderService {
         items: true,
         student: {
           select: { id: true, name: true, phoneNumber: true, email: true },
+        },
+        faculty: {
+          select: { id: true, name: true, phoneNumber: true, email: true, department: true, roomNumber: true },
         },
         paymentTransaction: true,
       },
@@ -317,14 +375,14 @@ export class OrderService {
   async printOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true, student: true },
+      include: { items: true, student: true, faculty: true },
     });
     if (!order) throw new NotFoundException('Order not found');
     // Idempotent — if already printed, still return success with current state
     const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: { printedAt: order.printedAt ?? new Date() },
-      include: { items: true, student: true },
+      include: { items: true, student: true, faculty: true },
     });
     this.logger.log(
       `[CANTEEN] printOrder orderId=${orderId} printedAt=${updated.printedAt?.toISOString()}`,
@@ -340,14 +398,25 @@ export class OrderService {
     });
     if (!order) throw new NotFoundException('Order not found');
 
+    // Idempotent: already completed → return success without re-applying
+    if (order.status === dto.status && dto.status === 'completed') {
+      return this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: true, student: true, faculty: true },
+      });
+    }
+
     const allowedTransitions: Record<string, string[]> = {
       paid: ['completed', 'cancelled'],
-      completed: [], // Final state
+      completed: [], // Final state – block re-completion
       cancelled: [], // Final state
     };
 
     const allowed = allowedTransitions[order.status] || [];
     if (!allowed.includes(dto.status)) {
+      if (order.status === 'completed') {
+        throw new BadRequestException('Order has already been completed');
+      }
       throw new BadRequestException(
         `Cannot transition from '${order.status}' to '${dto.status}'`,
       );
@@ -362,8 +431,192 @@ export class OrderService {
       include: {
         items: true,
         student: true,
+        faculty: true,
       },
     });
+  }
+
+  // ─── Canteen: Mark Order as READY (Phase 11) ─────────────────
+  //
+  // Explicit readiness signal — separate from printedAt and completedAt.
+  // Sets readyAt, then fires a push notification to the customer so they
+  // know to come collect their food.
+  // Idempotent: if already marked ready, returns current state.
+
+  async markOrderReady(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, student: true, faculty: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.status !== 'paid') {
+      throw new BadRequestException(
+        `Only paid (queued) orders can be marked ready. Current status: ${order.status}`,
+      );
+    }
+
+    // Idempotent — already ready, return current state
+    if (order.readyAt) {
+      this.logger.log(
+        `[READY] Order ${orderId} already marked ready at ${order.readyAt.toISOString()}`,
+      );
+      return order;
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { readyAt: new Date() },
+      include: { items: true, student: true, faculty: true },
+    });
+
+    this.logger.log(
+      `[READY] Order ${orderId} (token=${updated.tokenNumber}) marked ready`,
+    );
+
+    // ── Dispatch push notification ─────────────────────────────
+    // Look up the customer's FCM token from the appropriate table.
+    // This is fire-and-forget — any FCM failure is logged but swallowed.
+    const isFaculty = updated.customerRole === 'faculty';
+    let fcmToken: string | null = null;
+
+    if (isFaculty && updated.facultyId) {
+      const fac = await this.prisma.faculty.findUnique({
+        where: { id: updated.facultyId },
+        select: { fcmToken: true, name: true },
+      });
+      fcmToken = fac?.fcmToken ?? null;
+    } else if (updated.studentId) {
+      const stu = await this.prisma.student.findUnique({
+        where: { id: updated.studentId },
+        select: { fcmToken: true, name: true },
+      });
+      fcmToken = stu?.fcmToken ?? null;
+    }
+
+    if (fcmToken) {
+      // Do not await — notification failure must never block order flow
+      this.notifications
+        .sendToToken(
+          fcmToken,
+          '🍽️ Your order is ready!',
+          `Token #${updated.tokenNumber} is ready for pickup at the counter.`,
+          { orderId: updated.id, token: updated.tokenNumber },
+        )
+        .catch((e) =>
+          this.logger.error(`[READY] FCM dispatch failed: ${e?.message}`),
+        );
+    } else {
+      this.logger.warn(
+        `[READY] No FCM token for ${isFaculty ? 'faculty' : 'student'} — push skipped`,
+      );
+    }
+
+    return updated;
+  }
+
+  // ─── Register / Update FCM Token (Phase 11) ─────────────────
+  //
+  // Called by the Flutter app after login when a new FCM token is
+  // obtained. Stores the token against the user record.
+  // Idempotent — calling again with the same token is a no-op.
+
+  async registerFcmToken(
+    userId: string,
+    userRole: 'student' | 'faculty',
+    token: string,
+  ): Promise<void> {
+    if (!token?.trim()) return;
+    if (userRole === 'faculty') {
+      await this.prisma.faculty.update({
+        where: { id: userId },
+        data: { fcmToken: token },
+      });
+    } else {
+      await this.prisma.student.update({
+        where: { id: userId },
+        data: { fcmToken: token },
+      });
+    }
+    this.logger.log(`[FCM] Token registered for ${userRole}:${userId.slice(0, 8)}`);
+  }
+
+  // ─── Canteen: Queue Count (smart poll) ─────────────────────
+  // Lightweight endpoint — returns only {count, latestOrderedAt}
+  // Used by canteen frontend smart-poll to detect new orders without
+  // fetching the full order list every few seconds.
+
+  async getOrderQueueCount(): Promise<{
+    count: number;
+    latestOrderedAt: string | null;
+  }> {
+    const result = await this.prisma.order.aggregate({
+      where: {
+        status: 'paid',
+        hiddenFromCanteenAt: null,
+        printedAt: null,
+      },
+      _count: { id: true },
+      _max: { orderedAt: true },
+    });
+    return {
+      count: result._count.id,
+      latestOrderedAt: result._max.orderedAt?.toISOString() ?? null,
+    };
+  }
+
+  // ─── Canteen: Verify & Complete by Token or QR ─────────────
+
+  async verifyAndCompleteByToken(token: string, canteenUserId: string) {
+    this.logger.log(
+      `[VERIFY] verifyAndCompleteByToken token=${token} by canteen=${canteenUserId}`,
+    );
+
+    // Look up by token number (today's orders first, then all time as fallback)
+    const order = await this.prisma.order.findFirst({
+      where: { tokenNumber: token },
+      include: {
+        items: true,
+        student: { select: { id: true, name: true, phoneNumber: true, email: true } },
+        faculty: { select: { id: true, name: true, phoneNumber: true, email: true, department: true, roomNumber: true } },
+        paymentTransaction: true,
+      },
+      orderBy: { orderedAt: 'desc' },
+    });
+
+    if (!order) {
+      return { found: false, reason: 'TOKEN_NOT_FOUND', message: 'No order found for this token' };
+    }
+
+    if (order.status === 'created' || order.status === 'payment_pending') {
+      return { found: true, order, reason: 'NOT_PAID', message: 'Order has not been paid yet' };
+    }
+
+    if (order.status === 'cancelled') {
+      return { found: true, order, reason: 'CANCELLED', message: 'This order was cancelled' };
+    }
+
+    if (order.status === 'completed') {
+      return { found: true, order, reason: 'ALREADY_COMPLETED', message: 'This order has already been collected' };
+    }
+
+    // status === 'paid' → safe to complete
+    const completed = await this.prisma.order.update({
+      where: { id: order.id },
+      data: { status: 'completed', completedAt: new Date() },
+      include: {
+        items: true,
+        student: { select: { id: true, name: true, phoneNumber: true, email: true } },
+        faculty: { select: { id: true, name: true, phoneNumber: true, email: true, department: true, roomNumber: true } },
+        paymentTransaction: true,
+      },
+    });
+
+    this.logger.log(
+      `[VERIFY] Order ${order.id} (token=${token}) completed by canteen=${canteenUserId}`,
+    );
+
+    return { found: true, order: completed, reason: 'COMPLETED', message: 'Order verified and marked as collected' };
   }
 
   // ─── Finalize Paid Order ───────────────────────────────────

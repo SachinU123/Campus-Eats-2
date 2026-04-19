@@ -67,7 +67,7 @@ class AuthRepository {
     required String password,
     required String phoneNumber,
   }) async {
-    final result = await _api.post('/auth/student/register', body: {
+    final result = await _api.post('/auth/register', body: {
       'name': name,
       'email': email,
       'password': password,
@@ -88,9 +88,60 @@ class AuthRepository {
     return user;
   }
 
+  /// Faculty registration.
+  Future<UserProfile> facultyRegister({
+    required String name,
+    required String email,
+    required String password,
+    required String phoneNumber,
+    String department = '',
+    String roomNumber = '',
+  }) async {
+    final result = await _api.post('/auth/faculty/register', body: {
+      'name': name,
+      'email': email,
+      'password': password,
+      'phoneNumber': phoneNumber,
+      if (department.isNotEmpty) 'department': department,
+      if (roomNumber.isNotEmpty) 'roomNumber': roomNumber,
+    });
+
+    if (!result.isSuccess) {
+      throw Exception(result.message);
+    }
+
+    final data = result.data as Map<String, dynamic>;
+    final user = _parseUser(data['user'] as Map<String, dynamic>);
+    await _saveSession(
+      user: user,
+      accessToken: data['accessToken'] as String,
+      refreshToken: data['refreshToken'] as String,
+    );
+    return user;
+  }
+
   /// Student login (email + password).
   Future<UserProfile?> login(String email, String password) async {
-    final result = await _api.post('/auth/student/login', body: {
+    final result = await _api.post('/auth/login', body: {
+      'email': email,
+      'password': password,
+    });
+
+    if (!result.isSuccess) return null;
+
+    final data = result.data as Map<String, dynamic>;
+    final user = _parseUser(data['user'] as Map<String, dynamic>);
+    await _saveSession(
+      user: user,
+      accessToken: data['accessToken'] as String,
+      refreshToken: data['refreshToken'] as String,
+    );
+    return user;
+  }
+
+  /// Faculty login (email + password).
+  Future<UserProfile?> facultyLogin(String email, String password) async {
+    final result = await _api.post('/auth/faculty/login', body: {
       'email': email,
       'password': password,
     });
@@ -198,10 +249,13 @@ class AuthRepository {
       id: data['id'] as String,
       name: data['name'] as String,
       email: data['email'] as String? ?? '',
-      department: '',
+      department: data['department'] as String? ?? '',
       year: '',
       role: data['role'] as String,
       phone: data['phoneNumber'] as String? ?? '',
+      roomNumber: data['roomNumber'] as String? ?? '',
+      // Phase 7: canteenRole is 'canteen_admin' for admin users, '' for others
+      canteenRole: data['canteenRole'] as String? ?? '',
     );
   }
 
@@ -240,8 +294,16 @@ class AuthNotifier extends Notifier<UserProfile?> {
     return ref.read(authRepositoryProvider).currentUser;
   }
 
+  /// Student login (email + password).
   Future<bool> login(String email, String password) async {
     final user = await ref.read(authRepositoryProvider).login(email, password);
+    state = user;
+    return user != null;
+  }
+
+  /// Faculty login (email + password).
+  Future<bool> loginFaculty(String email, String password) async {
+    final user = await ref.read(authRepositoryProvider).facultyLogin(email, password);
     state = user;
     return user != null;
   }
@@ -272,12 +334,13 @@ class AuthNotifier extends Notifier<UserProfile?> {
     return user != null;
   }
 
+  /// Student registration.
   Future<UserProfile> register({
     required String name,
     required String email,
     required String password,
     required String phone,
-    // Legacy params kept for backward compat but ignored
+    // Legacy params kept for backward compat but ignored for students
     String department = '',
     String year = '',
     String role = 'student',
@@ -287,6 +350,27 @@ class AuthNotifier extends Notifier<UserProfile?> {
           email: email,
           password: password,
           phoneNumber: phone,
+        );
+    state = user;
+    return user;
+  }
+
+  /// Faculty registration.
+  Future<UserProfile> registerFaculty({
+    required String name,
+    required String email,
+    required String password,
+    required String phone,
+    String department = '',
+    String roomNumber = '',
+  }) async {
+    final user = await ref.read(authRepositoryProvider).facultyRegister(
+          name: name,
+          email: email,
+          password: password,
+          phoneNumber: phone,
+          department: department,
+          roomNumber: roomNumber,
         );
     state = user;
     return user;

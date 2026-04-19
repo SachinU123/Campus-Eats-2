@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LogoutDto = exports.RefreshTokenDto = exports.CanteenVerifyOtpDto = exports.CanteenRequestOtpDto = exports.StudentLoginDto = exports.StudentRegisterDto = void 0;
+exports.LogoutDto = exports.RefreshTokenDto = exports.CanteenVerifyOtpDto = exports.CanteenRequestOtpDto = exports.FacultyLoginDto = exports.FacultyRegisterDto = exports.StudentLoginDto = exports.StudentRegisterDto = void 0;
 const class_validator_1 = require("class-validator");
 class StudentRegisterDto {
     name;
@@ -51,6 +51,58 @@ __decorate([
     (0, class_validator_1.MinLength)(6),
     __metadata("design:type", String)
 ], StudentLoginDto.prototype, "password", void 0);
+class FacultyRegisterDto {
+    name;
+    email;
+    phoneNumber;
+    password;
+    department;
+    roomNumber;
+}
+exports.FacultyRegisterDto = FacultyRegisterDto;
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "name", void 0);
+__decorate([
+    (0, class_validator_1.IsEmail)(),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "email", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "phoneNumber", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.MinLength)(6),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "password", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "department", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], FacultyRegisterDto.prototype, "roomNumber", void 0);
+class FacultyLoginDto {
+    email;
+    password;
+}
+exports.FacultyLoginDto = FacultyLoginDto;
+__decorate([
+    (0, class_validator_1.IsEmail)(),
+    __metadata("design:type", String)
+], FacultyLoginDto.prototype, "email", void 0);
+__decorate([
+    (0, class_validator_1.IsNotEmpty)(),
+    (0, class_validator_1.MinLength)(6),
+    __metadata("design:type", String)
+], FacultyLoginDto.prototype, "password", void 0);
 class CanteenRequestOtpDto {
     phoneNumber;
 }

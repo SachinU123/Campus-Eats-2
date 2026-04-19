@@ -39,16 +39,17 @@ export declare class PaymentService {
                 updatedAt: Date;
                 email: string;
                 passwordHash: string;
-            };
+                fcmToken: string | null;
+            } | null;
             paymentTransaction: {
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
                 status: string;
                 orderId: string;
-                razorpayPaymentId: string | null;
                 gateway: string;
                 razorpayOrderId: string | null;
+                razorpayPaymentId: string | null;
                 razorpaySignature: string | null;
                 amount: number;
                 currency: string;
@@ -59,10 +60,12 @@ export declare class PaymentService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            studentId: string;
+            studentId: string | null;
+            facultyId: string | null;
             notes: string | null;
             scheduledFor: Date | null;
             status: string;
+            customerRole: string;
             tokenNumber: string;
             subtotal: number;
             total: number;
@@ -72,6 +75,7 @@ export declare class PaymentService {
             orderedAt: Date;
             completedAt: Date | null;
             printedAt: Date | null;
+            readyAt: Date | null;
             hiddenFromCanteenAt: Date | null;
         };
     }>;
@@ -81,9 +85,9 @@ export declare class PaymentService {
         updatedAt: Date;
         status: string;
         orderId: string;
-        razorpayPaymentId: string | null;
         gateway: string;
         razorpayOrderId: string | null;
+        razorpayPaymentId: string | null;
         razorpaySignature: string | null;
         amount: number;
         currency: string;

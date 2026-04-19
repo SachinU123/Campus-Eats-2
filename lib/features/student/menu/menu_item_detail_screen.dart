@@ -116,22 +116,38 @@ class _ItemDetailView extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Tags row
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             VegBadge(isVeg: item.isVeg, size: 20),
-                            const SizedBox(width: 8),
                             _Badge(
                               label: _categoryLabel,
                               color: theme.colorScheme.primary,
                             ),
-                            if (item.isPopular) ...[
-                              const SizedBox(width: 8),
+                            // Phase 6: Special badge
+                            if (item.isSpecial)
+                              _Badge(
+                                label: item.specialLabel.isNotEmpty
+                                    ? item.specialLabel
+                                    : "Today's Special",
+                                color: const Color(0xFFFF6B2B),
+                                icon: Icons.star_rounded,
+                              ),
+                            if (item.isPopular && !item.isSpecial)
                               _Badge(
                                 label: 'Popular',
                                 color: AppColors.warning,
                                 icon: Icons.local_fire_department_rounded,
                               ),
-                            ],
+                            // Phase 6: Unavailable today
+                            if (!item.isOrderable)
+                              _Badge(
+                                label: 'Unavailable Today',
+                                color: theme.colorScheme.error,
+                                icon: Icons.block_rounded,
+                              ),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -266,33 +282,40 @@ class _ItemDetailView extends ConsumerWidget {
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: cartQty > 0
-                        ? _QuantityStepper(item: item, qty: cartQty)
-                        : AppButton(
-                            label: 'Add to Cart',
-                            icon: Icons.add_shopping_cart_rounded,
-                            onTap: () async {
-                              await ref
-                                  .read(cartProvider.notifier)
-                                  .addItem(CartItem(
-                                    menuItemId: item.id,
-                                    name: item.name,
-                                    price: item.price,
-                                    isVeg: item.isVeg,
-                                    emoji: item.emoji,
-                                  ));
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content:
-                                        Text('${item.name} added to cart'),
-                                    duration: const Duration(seconds: 1),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              }
-                            },
-                          ),
+                    child: !item.isOrderable
+                        // Phase 6: Unavailable today — disabled button
+                        ? AppButton(
+                            label: 'Unavailable Today',
+                            icon: Icons.block_rounded,
+                            onTap: null,
+                          )
+                        : cartQty > 0
+                            ? _QuantityStepper(item: item, qty: cartQty)
+                            : AppButton(
+                                label: 'Add to Cart',
+                                icon: Icons.add_shopping_cart_rounded,
+                                onTap: () async {
+                                  await ref
+                                      .read(cartProvider.notifier)
+                                      .addItem(CartItem(
+                                        menuItemId: item.id,
+                                        name: item.name,
+                                        price: item.price,
+                                        isVeg: item.isVeg,
+                                        emoji: item.emoji,
+                                      ));
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content:
+                                            Text('${item.name} added to cart'),
+                                        duration: const Duration(seconds: 1),
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
                   ),
                 ],
               ),

@@ -26,6 +26,40 @@ export class StudentLoginDto {
   password: string;
 }
 
+export class FacultyRegisterDto {
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  @IsEmail()
+  email: string;
+
+  @IsNotEmpty()
+  @IsString()
+  phoneNumber: string;
+
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string;
+
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @IsOptional()
+  @IsString()
+  roomNumber?: string;
+}
+
+export class FacultyLoginDto {
+  @IsEmail()
+  email: string;
+
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string;
+}
+
 export class CanteenRequestOtpDto {
   @IsNotEmpty()
   @IsString()

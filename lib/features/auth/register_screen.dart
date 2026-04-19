@@ -18,9 +18,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _deptCtrl = TextEditingController();
+  final _roomCtrl = TextEditingController();
+
   bool _obscure = true;
   bool _loading = false;
   String? _error;
+  String _selectedRole = 'student'; // 'student' | 'faculty'
 
   @override
   void dispose() {
@@ -28,6 +32,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _phoneCtrl.dispose();
+    _deptCtrl.dispose();
+    _roomCtrl.dispose();
     super.dispose();
   }
 
@@ -39,12 +45,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     });
 
     try {
-      await ref.read(authProvider.notifier).register(
-            name: _nameCtrl.text.trim(),
-            email: _emailCtrl.text.trim(),
-            password: _passCtrl.text.trim(),
-            phone: _phoneCtrl.text.trim(),
-          );
+      if (_selectedRole == 'faculty') {
+        await ref.read(authProvider.notifier).registerFaculty(
+              name: _nameCtrl.text.trim(),
+              email: _emailCtrl.text.trim(),
+              password: _passCtrl.text.trim(),
+              phone: _phoneCtrl.text.trim(),
+              department: _deptCtrl.text.trim(),
+              roomNumber: _roomCtrl.text.trim(),
+            );
+      } else {
+        await ref.read(authProvider.notifier).register(
+              name: _nameCtrl.text.trim(),
+              email: _emailCtrl.text.trim(),
+              password: _passCtrl.text.trim(),
+              phone: _phoneCtrl.text.trim(),
+            );
+      }
 
       if (!mounted) return;
       setState(() => _loading = false);
@@ -61,6 +78,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isFaculty = _selectedRole == 'faculty';
 
     return Scaffold(
       appBar: AppBar(
@@ -91,8 +109,36 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 20),
 
+                // ── Role Selector ───────────────────────────────
+                Text(
+                  'I am a',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _RoleChip(
+                      label: 'Student',
+                      icon: Icons.school_rounded,
+                      selected: _selectedRole == 'student',
+                      onTap: () => setState(() => _selectedRole = 'student'),
+                    ),
+                    const SizedBox(width: 12),
+                    _RoleChip(
+                      label: 'Faculty',
+                      icon: Icons.work_outline_rounded,
+                      selected: _selectedRole == 'faculty',
+                      onTap: () => setState(() => _selectedRole = 'faculty'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // ── Common fields ───────────────────────────────
                 TextFormField(
                   controller: _nameCtrl,
                   textInputAction: TextInputAction.next,
@@ -109,10 +155,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Email',
-                    hintText: 'name@example.com',
-                    prefixIcon: Icon(Icons.email_outlined),
+                    hintText: isFaculty
+                        ? 'professor@college.edu.in'
+                        : 'name@example.com',
+                    prefixIcon: const Icon(Icons.email_outlined),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return 'Enter your email';
@@ -133,7 +181,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       icon: Icon(_obscure
                           ? Icons.visibility_outlined
                           : Icons.visibility_off_outlined),
-                      onPressed: () => setState(() => _obscure = !_obscure),
+                      onPressed: () =>
+                          setState(() => _obscure = !_obscure),
                     ),
                   ),
                   validator: (v) {
@@ -147,7 +196,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _phoneCtrl,
                   keyboardType: TextInputType.phone,
-                  textInputAction: TextInputAction.done,
+                  textInputAction:
+                      isFaculty ? TextInputAction.next : TextInputAction.done,
                   decoration: const InputDecoration(
                     labelText: 'Phone Number',
                     prefixIcon: Icon(Icons.phone_outlined),
@@ -155,6 +205,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   validator: (v) =>
                       (v == null || v.length < 10) ? 'Enter valid phone' : null,
                 ),
+
+                // ── Faculty-only fields ─────────────────────────
+                if (isFaculty) ...[
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _deptCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Department',
+                      hintText: 'e.g. Computer Science',
+                      prefixIcon: Icon(Icons.domain_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _roomCtrl,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Room / Office Number',
+                      hintText: 'e.g. B-204',
+                      prefixIcon: Icon(Icons.meeting_room_outlined),
+                    ),
+                  ),
+                ],
 
                 if (_error != null) ...[
                   const SizedBox(height: 16),
@@ -185,7 +259,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
                 const SizedBox(height: 32),
                 AppButton(
-                  label: 'Create Account',
+                  label: isFaculty ? 'Register as Faculty' : 'Create Account',
                   onTap: _register,
                   isLoading: _loading,
                 ),
@@ -212,6 +286,64 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 24),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Role Selector Chip ────────────────────────────────────────
+
+class _RoleChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RoleChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = selected ? theme.colorScheme.primary : theme.colorScheme.outline;
+    final bg = selected
+        ? theme.colorScheme.primary.withValues(alpha: 0.10)
+        : theme.colorScheme.surface;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: color,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: color,
+                ),
+              ),
+            ],
           ),
         ),
       ),

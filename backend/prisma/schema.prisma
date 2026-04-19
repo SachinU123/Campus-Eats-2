@@ -20,6 +20,7 @@ model Student {
   phoneNumber  String
   passwordHash String
   isActive     Boolean  @default(true)
+  fcmToken     String?  // Phase 11: FCM device token for push notifications
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -27,6 +28,25 @@ model Student {
   sessions RefreshSession[]
 
   @@map("students")
+}
+
+model Faculty {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  phoneNumber  String
+  department   String   @default("")
+  roomNumber   String   @default("") // cabin / office / room
+  passwordHash String
+  isActive     Boolean  @default(true)
+  fcmToken     String?  // Phase 11: FCM device token for push notifications
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders   Order[]
+  sessions RefreshSession[]
+
+  @@map("faculty")
 }
 
 model CanteenUser {
@@ -63,7 +83,7 @@ model OtpCode {
 
 model RefreshSession {
   id               String    @id @default(uuid())
-  userType         String    // student | canteen
+  userType         String    // student | faculty | canteen
   userId           String
   refreshTokenHash String
   deviceId         String?
@@ -78,6 +98,8 @@ model RefreshSession {
   studentId   String?
   canteenUser CanteenUser? @relation(fields: [canteenUserId], references: [id], onDelete: Cascade)
   canteenUserId String?
+  faculty     Faculty?     @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  facultyId   String?
 
   @@index([userId, userType])
   @@index([refreshTokenHash])
@@ -103,19 +125,22 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id              String   @id @default(uuid())
-  categoryId      String
-  name            String
-  description     String   @default("")
-  imageUrl        String   @default("")
-  emoji           String   @default("")
-  price           Float
-  isVeg           Boolean  @default(true)
-  isPopular       Boolean  @default(false)
-  isAvailable     Boolean  @default(true)
-  prepTimeMinutes Int      @default(5) // Base preparation time in minutes
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  categoryId         String
+  name               String
+  description        String   @default("")
+  imageUrl           String   @default("")
+  emoji              String   @default("")
+  price              Float
+  isVeg              Boolean  @default(true)
+  isPopular          Boolean  @default(false)
+  isAvailable        Boolean  @default(true)
+  isUnavailableToday Boolean  @default(false) // Operational: mark unavailable for today only
+  isSpecial          Boolean  @default(false)  // Special/event/featured food flag
+  specialLabel       String   @default("")     // e.g. "Today's Special", "Event Food", "Limited"
+  prepTimeMinutes    Int      @default(5)      // Base preparation time in minutes
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   category   MenuCategory @relation(fields: [categoryId], references: [id])
   orderItems OrderItem[]
@@ -130,7 +155,9 @@ model MenuItem {
 
 model Order {
   id               String    @id @default(uuid())
-  studentId        String
+  studentId        String?   // null when order is placed by a faculty member
+  facultyId        String?   // null when order is placed by a student
+  customerRole     String    @default("student") // student | faculty
   tokenNumber      String    @unique
   status           String    @default("created") // created, payment_pending, paid, completed, cancelled
   subtotal         Float
@@ -143,16 +170,19 @@ model Order {
   orderedAt             DateTime  @default(now())
   completedAt           DateTime?
   printedAt             DateTime? // set when canteen marks order slip as printed; doesn't affect status
+  readyAt               DateTime? // Phase 11: set when canteen explicitly marks order as READY for pickup; triggers push
   hiddenFromCanteenAt   DateTime? // set by "Clear History"; hides from canteen view only
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  student            Student             @relation(fields: [studentId], references: [id])
+  student            Student?            @relation(fields: [studentId], references: [id])
+  faculty            Faculty?            @relation(fields: [facultyId], references: [id])
   items              OrderItem[]
   paymentTransaction PaymentTransaction?
   receipt            Receipt?
 
   @@index([studentId])
+  @@index([facultyId])
   @@index([status])
   @@index([orderedAt])
   @@index([scheduledFor])

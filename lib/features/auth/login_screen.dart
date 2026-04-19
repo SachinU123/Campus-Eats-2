@@ -36,10 +36,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
 
-    final success = await ref.read(authProvider.notifier).login(
+    // Try student first, then faculty (both use email + password)
+    bool success = await ref.read(authProvider.notifier).login(
           _emailCtrl.text.trim(),
           _passCtrl.text.trim(),
         );
+
+    if (!success) {
+      // Try faculty login
+      success = await ref.read(authProvider.notifier).loginFaculty(
+            _emailCtrl.text.trim(),
+            _passCtrl.text.trim(),
+          );
+    }
 
     if (!mounted) return;
     setState(() => _loading = false);
@@ -124,14 +133,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 40),
 
               Text(
-                'Student Login',
+                'Student / Faculty Login',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                'Sign in with your college email',
+                'Sign in with your email and password',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -148,7 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Email Address',
-                        hintText: 'priya@vppcoeva.edu.in',
+                        hintText: 'your@email.com',
                         prefixIcon: Icon(Icons.email_outlined),
                       ),
                       validator: (v) {

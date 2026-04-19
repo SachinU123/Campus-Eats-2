@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:campus_eats_ag/core/constants/app_constants.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_strings.dart';
+import 'package:campus_eats_ag/core/services/thermal_printer_service.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/auth_repository.dart';
@@ -17,13 +20,15 @@ class CanteenProfileScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final user = ref.watch(authProvider);
     final themeMode = ref.watch(themeProvider);
+    final s = ref.watch(canteenL10nProvider);
+    final currentLang = ref.watch(canteenLangProvider);
 
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Staff Profile')),
+      appBar: AppBar(title: Text(s.staffProfile)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -79,7 +84,7 @@ class CanteenProfileScreen extends ConsumerWidget {
                       size: 14, color: AppColors.primary),
                   const SizedBox(width: 5),
                   Text(
-                    'Canteen Staff',
+                    s.canteenStaff,
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -96,35 +101,35 @@ class CanteenProfileScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle(context, Icons.badge_outlined, 'Staff Info'),
+                  _sectionTitle(context, Icons.badge_outlined, s.sectionStaffInfo),
                   const SizedBox(height: 14),
                   _ProfileRow(
                     Icons.person_outline_rounded,
-                    'Full Name',
+                    s.labelFullName,
                     user.name,
                   ),
                   const Divider(height: 18),
                   _ProfileRow(
                     Icons.phone_outlined,
-                    'Phone',
+                    s.labelPhone,
                     user.phone.isEmpty ? '—' : '+91 ${user.phone}',
                   ),
                   const Divider(height: 18),
                   _ProfileRow(
                     Icons.storefront_outlined,
-                    'Canteen',
+                    s.labelCanteen,
                     AppConstants.canteenName,
                   ),
                   const Divider(height: 18),
                   _ProfileRow(
                     Icons.work_outline_rounded,
-                    'Role',
-                    'Canteen Staff',
+                    s.labelRole,
+                    s.canteenStaff,
                   ),
                   const Divider(height: 18),
                   _ProfileRow(
                     Icons.schedule_outlined,
-                    'Shift Timing',
+                    s.labelShiftTiming,
                     '8:00 AM – 4:00 PM',
                   ),
                 ],
@@ -137,7 +142,7 @@ class CanteenProfileScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _sectionTitle(context, Icons.tune_outlined, 'Appearance'),
+                  _sectionTitle(context, Icons.tune_outlined, s.sectionAppearance),
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -153,9 +158,9 @@ class CanteenProfileScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Dark Mode'),
+                            Text(s.darkMode),
                             Text(
-                              themeMode == 2 ? 'Dark theme active' : 'Light theme active',
+                              themeMode == 2 ? s.darkModeActive : s.lightModeActive,
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -173,13 +178,78 @@ class CanteenProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
+            // ── Language selector card ───────────────────────────────
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionTitle(context, Icons.translate_rounded, s.sectionLanguage),
+                  const SizedBox(height: 4),
+                  Text(
+                    s.languageSub,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  RadioGroup<String>(
+                    groupValue: currentLang,
+                    onChanged: (v) {
+                      if (v != null) {
+                        ref.read(canteenLangProvider.notifier).setLanguage(v);
+                      }
+                    },
+                    child: Column(
+                      children: ['en', 'hi', 'mr'].map((code) {
+                        final label =
+                            CanteenStrings.fromCode(code).languageName;
+                        final isSelected = currentLang == code;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => ref
+                              .read(canteenLangProvider.notifier)
+                              .setLanguage(code),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                Radio<String>(value: code),
+                                const SizedBox(width: 4),
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Thermal Printer card (Phase 11) ─────────────────────────
+            _ThermalPrinterCard(s: s),
+            const SizedBox(height: 16),
+
             // ── Device Info card ────────────────────────────────────
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _sectionTitle(
-                      context, Icons.devices_rounded, 'Device & Hardware'),
+                      context, Icons.devices_rounded, s.sectionDevice),
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -194,7 +264,7 @@ class CanteenProfileScreen extends ConsumerWidget {
                             size: 13, color: AppColors.info),
                         const SizedBox(width: 6),
                         Text(
-                          'Hardware integration coming soon',
+                          s.deviceHwSoon,
                           style: TextStyle(
                             fontSize: 11,
                             color: AppColors.info,
@@ -205,21 +275,21 @@ class CanteenProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   _DeviceRow(Icons.perm_device_information_outlined,
-                      'Device Name', 'Counter Terminal #1'),
+                      s.labelDeviceName, 'Counter Terminal #1'),
                   const Divider(height: 18),
-                  _DeviceRow(Icons.point_of_sale_outlined, 'Counter Device',
+                  _DeviceRow(Icons.point_of_sale_outlined, s.labelCounterDevice,
                       'Counter A'),
                   const Divider(height: 18),
                   _DeviceRow(
-                      Icons.fingerprint_rounded, 'Device ID', 'CTERM-001-VPP'),
+                      Icons.fingerprint_rounded, s.labelDeviceId, 'CTERM-001-VPP'),
                   const Divider(height: 18),
-                  _DeviceStatusRow(Icons.print_outlined, 'Printer Status',
-                      'Not Connected', false),
+                  _DeviceStatusRow(Icons.print_outlined, s.labelPrinterStatus,
+                      s.printerNotConnected, false),
                   const Divider(height: 18),
                   _DeviceStatusRow(Icons.qr_code_scanner_rounded,
-                      'Scanner Status', 'Ready', true),
+                      s.labelScannerStatus, s.scannerReady, true),
                   const Divider(height: 18),
-                  _DeviceRow(Icons.sync_outlined, 'Last Sync', '—'),
+                  _DeviceRow(Icons.sync_outlined, s.labelLastSync, '—'),
                 ],
               ),
             ),
@@ -231,14 +301,14 @@ class CanteenProfileScreen extends ConsumerWidget {
                 children: [
                   _ActionRow(
                     icon: Icons.delete_sweep_outlined,
-                    label: 'Clear Completed History',
+                    label: s.clearHistory,
                     color: AppColors.warning,
-                    onTap: () => _confirmClearHistory(context, ref),
+                    onTap: () => _confirmClearHistory(context, ref, s),
                   ),
                   const Divider(height: 8),
                   _ActionRow(
                     icon: Icons.help_outline_rounded,
-                    label: 'Help & Contact',
+                    label: s.helpContact,
                     onTap: () => showModalBottomSheet(
                       context: context,
                       shape: const RoundedRectangleBorder(
@@ -251,9 +321,9 @@ class CanteenProfileScreen extends ConsumerWidget {
                   const Divider(height: 8),
                   _ActionRow(
                     icon: Icons.logout_rounded,
-                    label: 'Logout',
+                    label: s.logout,
                     color: AppColors.error,
-                    onTap: () => _confirmLogout(context, ref),
+                    onTap: () => _confirmLogout(context, ref, s),
                   ),
                 ],
               ),
@@ -284,27 +354,21 @@ class CanteenProfileScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmClearHistory(
-      BuildContext context, WidgetRef ref) async {
+      BuildContext context, WidgetRef ref, CanteenStrings s) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear Completed History'),
-        content: const Text(
-          'This will hide all completed orders from your canteen view.\n\n'
-          'Orders, payment records, and reports are NOT deleted — '
-          'they remain safely in the system.\n\n'
-          'Student order history is also unaffected.\n\n'
-          'Active, paid, and scheduled orders are NOT affected.',
-        ),
+        title: Text(s.clearHistoryTitle),
+        content: Text(s.clearHistoryBody),
         actions: [
           TextButton(
             onPressed: () => ctx.pop(false),
-            child: const Text('Cancel'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => ctx.pop(true),
             style: TextButton.styleFrom(foregroundColor: AppColors.warning),
-            child: const Text('Clear from View'),
+            child: Text(s.clearFromView),
           ),
         ],
       ),
@@ -316,37 +380,34 @@ class CanteenProfileScreen extends ConsumerWidget {
         final count = await repo.clearCompletedHistory();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Cleared $count completed order${count == 1 ? '' : 's'}'),
-            ),
+            SnackBar(content: Text(s.clearedCount(count))),
           );
         }
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed: $e')),
+            SnackBar(content: Text('${s.failedMsg}: $e')),
           );
         }
       }
     }
   }
 
-  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmLogout(BuildContext context, WidgetRef ref, CanteenStrings s) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Logout'),
-        content:
-            const Text('Are you sure you want to logout from canteen staff?'),
+        title: Text(s.logoutTitle),
+        content: Text(s.logoutBody),
         actions: [
           TextButton(
             onPressed: () => ctx.pop(false),
-            child: const Text('Cancel'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => ctx.pop(true),
             style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Logout'),
+            child: Text(s.logoutConfirm),
           ),
         ],
       ),
@@ -500,3 +561,167 @@ class _ActionRow extends StatelessWidget {
   }
 }
 
+// ─── Thermal Printer Card (Phase 11) ─────────────────────────────────────────
+//
+// Shows paired printer status and allows canteen staff to scan for and pair
+// a Bluetooth ESC/POS thermal printer (e.g. 80mm roll receipt printer).
+// Once paired, the printer address is persisted in SharedPreferences.
+// Fallback PDF print remains available regardless of pairing state.
+
+class _ThermalPrinterCard extends StatefulWidget {
+  final CanteenStrings s;
+  const _ThermalPrinterCard({required this.s});
+
+  @override
+  State<_ThermalPrinterCard> createState() => _ThermalPrinterCardState();
+}
+
+class _ThermalPrinterCardState extends State<_ThermalPrinterCard> {
+  final _svc = ThermalPrinterService.instance;
+  bool _scanning = false;
+  List<DiscoveredPrinter> _discovered = [];
+
+  Future<void> _scan() async {
+    setState(() {
+      _scanning = true;
+      _discovered = [];
+    });
+    final found = await _svc.scanBluetooth();
+    if (mounted) setState(() { _scanning = false; _discovered = found; });
+    if (!mounted) return;
+    if (found.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${widget.s.thermalNotFound} (No BT printers found)'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    _showPairSheet();
+  }
+
+  void _showPairSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.s.pairPrinter,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            ..._discovered.map((p) => ListTile(
+              leading: const Icon(Icons.print_rounded),
+              title: Text(p.name),
+              subtitle: Text(p.address),
+              trailing: const Icon(Icons.bluetooth_rounded, color: AppColors.primary),
+              onTap: () async {
+                Navigator.pop(context);
+                await _svc.savePaired(PairedPrinterInfo(
+                  address: p.address,
+                  name: p.name,
+                  type: p.savedType,
+                ));
+                if (mounted) setState(() {});
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${widget.s.thermalConnected}: ${p.name}'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              },
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clear() async {
+    await _svc.clearPaired();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final paired = _svc.pairedPrinter;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.print_rounded, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
+              widget.s.thermalPrinterTitle,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+          ]),
+          const SizedBox(height: 10),
+
+          // Status
+          if (paired != null) ...[
+            Row(children: [
+              const Icon(Icons.check_circle_rounded, size: 16, color: AppColors.success),
+              const SizedBox(width: 6),
+              Expanded(child: Text('${widget.s.printerPairedAs} ${paired.name} (${paired.address})',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+            ]),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.bluetooth_disabled_rounded, size: 16),
+                label: Text(widget.s.clearPrinter),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),
+                onPressed: _clear,
+              ),
+            ),
+          ] else ...[
+            Text(widget.s.thermalDisconnected,
+                style: const TextStyle(fontSize: 13, color: AppColors.warning)),
+            const SizedBox(height: 10),
+          ],
+
+          // Scan button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: _scanning
+                  ? const SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.bluetooth_searching_rounded, size: 16),
+              label: Text(_scanning ? widget.s.thermalPrinting : widget.s.pairPrinter),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _scanning ? null : _scan,
+            ),
+          ),
+
+          const SizedBox(height: 6),
+          Text(
+            widget.s.thermalUseFallback,
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

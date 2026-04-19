@@ -143,12 +143,18 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           _loadItems();
                         },
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: items.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 10),
-                        itemBuilder: (ctx, i) => _MenuItemCard(item: items[i]),
+                    : RefreshIndicator(
+                        onRefresh: _loadItems,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                          physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics(),
+                          ),
+                          itemCount: items.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (ctx, i) => _MenuItemCard(item: items[i]),
+                        ),
                       ),
           ),
         ],
@@ -250,108 +256,218 @@ class _MenuItemCard extends ConsumerWidget {
     ref.watch(cartProvider); // watch for quantity rebuild
     final cartQty = cartNotifier.getQuantity(item.id);
 
+    final bool canOrder = item.isOrderable;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () =>
             context.push('/student/menu/item/${item.id}', extra: item),
         borderRadius: BorderRadius.circular(16),
-        child: AppCard(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              // Emoji thumbnail
-              Hero(
-                tag: 'item_${item.id}',
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer
-                        .withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Stack(
-                    children: [
-                      Center(
-                        child: Text(item.emoji,
-                            style: const TextStyle(fontSize: 38)),
-                      ),
-                      if (item.isPopular)
-                        Positioned(
-                          top: 4,
-                          left: 4,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.warning.withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(4),
+        child: Opacity(
+          opacity: canOrder ? 1.0 : 0.55,
+          child: AppCard(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                // Emoji thumbnail with special & unavailable badges
+                Hero(
+                  tag: 'item_${item.id}',
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer
+                          .withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Text(item.emoji,
+                              style: const TextStyle(fontSize: 38)),
+                        ),
+                        // Phase 6: Special badge (top-left, star)
+                        if (item.isSpecial)
+                          Positioned(
+                            top: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF6B2B),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text('⭐',
+                                      style: TextStyle(fontSize: 7)),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    item.specialLabel.isNotEmpty
+                                        ? item.specialLabel
+                                        : 'Special',
+                                    style: const TextStyle(
+                                      fontSize: 7,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            child: const Text(
-                              'Hot',
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                          )
+                        // Popular badge (shown only when not special)
+                        else if (item.isPopular)
+                          Positioned(
+                            top: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.warning.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Hot',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        // Phase 6: Unavailable today overlay
+                        if (!canOrder)
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'N/A\nToday',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          VegBadge(isVeg: item.isVeg),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              item.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: canOrder
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.5),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Phase 6: Unavailable today banner
+                      if (!canOrder)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 2),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Unavailable Today',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onErrorContainer,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        const SizedBox(height: 4),
+                      Text(
+                        item.description,
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text(
+                            'Rs. ${item.price.toInt()}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: canOrder
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.4),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (!canOrder)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'N/A',
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.4),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            )
+                          else if (cartQty > 0)
+                            _QuantityStepper(item: item, qty: cartQty)
+                          else
+                            _AddToCartBtn(item: item),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        VegBadge(isVeg: item.isVeg),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            item.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 15),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.description,
-                      style: theme.textTheme.bodySmall,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text(
-                          'Rs. ${item.price.toInt()}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (cartQty > 0)
-                          _QuantityStepper(item: item, qty: cartQty)
-                        else
-                          _AddToCartBtn(item: item),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

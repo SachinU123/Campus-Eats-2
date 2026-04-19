@@ -22,27 +22,63 @@ import { ApiResponse } from '../common/dto/api-response.dto.js';
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
-  // ─── Student: Create Order ─────────────────────────────────
+  // ─── Student/Faculty: Create Order ─────────────────────────
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles('student')
+  @Roles('student', 'faculty')
   async createOrder(
-    @CurrentUser('sub') studentId: string,
+    @CurrentUser('sub') callerId: string,
+    @CurrentUser('role') callerRole: string,
     @Body() dto: CreateOrderDto,
   ) {
-    const order = await this.orderService.createOrder(studentId, dto);
+    const order = await this.orderService.createOrder(
+      callerId,
+      dto,
+      callerRole as 'student' | 'faculty',
+    );
     return ApiResponse.ok(order, 'Order created');
   }
 
-  // ─── Student: My Orders ────────────────────────────────────
+  // ─── Student/Faculty: My Orders ────────────────────────────
 
   @Get('my')
   @UseGuards(RolesGuard)
-  @Roles('student')
-  async getMyOrders(@CurrentUser('sub') studentId: string) {
-    const orders = await this.orderService.getStudentOrders(studentId);
+  @Roles('student', 'faculty')
+  async getMyOrders(
+    @CurrentUser('sub') callerId: string,
+    @CurrentUser('role') callerRole: string,
+  ) {
+    if (callerRole === 'faculty') {
+      const orders = await this.orderService.getFacultyOrders(callerId);
+      return ApiResponse.ok(orders, 'Orders retrieved');
+    }
+    const orders = await this.orderService.getStudentOrders(callerId);
     return ApiResponse.ok(orders, 'Orders retrieved');
+  }
+
+  // ─── Student/Faculty: Register FCM Token (Phase 11) ──────────
+  // POST /orders/fcm-token
+  // Called anytime the FCM token refreshes on the device.
+  // Roles: student, faculty
+
+  @Post('fcm-token')
+  @UseGuards(RolesGuard)
+  @Roles('student', 'faculty')
+  async registerFcmToken(
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('role') userRole: string,
+    @Body() body: { token: string },
+  ) {
+    if (!body?.token || typeof body.token !== 'string') {
+      return ApiResponse.ok({}, 'Token skipped — empty');
+    }
+    await this.orderService.registerFcmToken(
+      userId,
+      userRole as 'student' | 'faculty',
+      body.token,
+    );
+    return ApiResponse.ok({}, 'FCM token registered');
   }
 
   // ─── Get Order Detail ──────────────────────────────────────
@@ -77,6 +113,15 @@ export class CanteenOrderController {
     return ApiResponse.ok(orders, 'Canteen orders retrieved');
   }
 
+  // GET /canteen/orders/poll — ultra-lightweight queue count for smart polling
+  // Returns { count, latestOrderedAt } only — no full order data.
+  // Static route declared BEFORE parameterized :id routes (NestJS priority).
+  @Get('poll')
+  async pollOrders() {
+    const data = await this.orderService.getOrderQueueCount();
+    return ApiResponse.ok(data, 'Poll OK');
+  }
+
   // GET /canteen/orders/:id
   @Get(':id')
   async getOrderById(@Param('id') id: string) {
@@ -89,6 +134,19 @@ export class CanteenOrderController {
   async getSlip(@Param('id') id: string) {
     const slip = await this.orderService.getSlip(id);
     return ApiResponse.ok(slip, 'Slip retrieved');
+  }
+
+  // POST /canteen/orders/verify — verify token/QR and complete order atomically
+  @Post('verify')
+  async verifyOrder(
+    @Body() body: { token: string },
+    @CurrentUser('sub') canteenUserId: string,
+  ) {
+    if (!body?.token || typeof body.token !== 'string' || body.token.trim().length === 0) {
+      return ApiResponse.ok({ found: false, reason: 'INVALID_TOKEN', message: 'Token is required' }, 'Invalid token');
+    }
+    const result = await this.orderService.verifyAndCompleteByToken(body.token.trim(), canteenUserId);
+    return ApiResponse.ok(result, result.message);
   }
 
   // PATCH /canteen/orders/:id/complete — transition status (paid → completed | cancelled)
@@ -106,6 +164,15 @@ export class CanteenOrderController {
   async printOrder(@Param('id') id: string) {
     const order = await this.orderService.printOrder(id);
     return ApiResponse.ok(order, 'Order marked as printed');
+  }
+
+  // PATCH /canteen/orders/:id/ready — mark order as READY, fires push (Phase 11)
+  // Idempotent: calling again on an already-ready order is safe.
+  // IMPORTANT: ready is separate from printed and completed.
+  @Patch(':id/ready')
+  async markOrderReady(@Param('id') id: string) {
+    const order = await this.orderService.markOrderReady(id);
+    return ApiResponse.ok(order, 'Order marked as ready — notification dispatched');
   }
 }
 

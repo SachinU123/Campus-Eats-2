@@ -1,24 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_strings.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
 import 'package:campus_eats_ag/data/repositories/order_repository.dart';
+import 'package:campus_eats_ag/features/canteen/orders/canteen_orders_screen.dart';
 import 'package:campus_eats_ag/models/order.dart';
+
+// ─── Screen ──────────────────────────────────────────────────────────────────
 
 class CanteenVerifyScreen extends ConsumerStatefulWidget {
   const CanteenVerifyScreen({super.key});
 
   @override
-  ConsumerState<CanteenVerifyScreen> createState() => _CanteenVerifyScreenState();
+  ConsumerState<CanteenVerifyScreen> createState() =>
+      _CanteenVerifyScreenState();
 }
 
 class _CanteenVerifyScreenState extends ConsumerState<CanteenVerifyScreen> {
-  final List<TextEditingController> _ctrls = List.generate(4, (_) => TextEditingController());
+  final List<TextEditingController> _ctrls =
+      List.generate(4, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
-  Order? _result;
-  String? _error;
+
+  bool _loading = false;
+  VerifyResult? _result;
 
   @override
   void dispose() {
@@ -33,231 +42,283 @@ class _CanteenVerifyScreenState extends ConsumerState<CanteenVerifyScreen> {
 
   String get _token => _ctrls.map((c) => c.text).join();
 
-  void _lookup() {
-    final token = _token;
-    if (token.length < 4) return;
+  // ── Verify via backend ────────────────────────────────────────────────────
 
-    final order = ref.read(orderProvider.notifier).findByToken(token);
+  Future<void> _verify(String rawToken) async {
+    if (rawToken.isEmpty) return;
     setState(() {
-      if (order != null) {
-        _result = order;
-        _error = null;
-      } else {
-        _result = null;
-        _error = 'No order found for token $token';
-      }
+      _loading = true;
+      _result = null;
     });
+
+    try {
+      final result =
+          await ref.read(orderProvider.notifier).verifyByToken(rawToken);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _result = result;
+      });
+
+      // If just completed → refresh orders list so it reflects in Orders tab
+      if (result.isCompleted) {
+        ref.read(canteenOrdersProvider.notifier).refresh();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _result = VerifyResult(
+          found: false,
+          reason: 'API_ERROR',
+          message: e.toString().replaceAll('Exception: ', ''),
+        );
+      });
+    }
+  }
+
+  Future<void> _verifyToken() async {
+    if (_token.length < 4) return;
+    FocusScope.of(context).unfocus();
+    await _verify(_token);
   }
 
   void _clear() {
     for (final c in _ctrls) {
       c.clear();
     }
-    _focusNodes[0].requestFocus();
-    setState(() {
-      _result = null;
-      _error = null;
-    });
+    if (_focusNodes.isNotEmpty) _focusNodes[0].requestFocus();
+    setState(() => _result = null);
   }
 
-  void _refreshResult() {
-    if (_result != null) {
-      final updated = ref.read(orderProvider.notifier).findById(_result!.id);
-      setState(() => _result = updated);
-    }
-  }
+  // ─── QR Scan sheet ────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    ref.listen(orderProvider, (_, _) => _refreshResult());
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Verify Order'),
-        actions: [
-          TextButton.icon(
-            onPressed: () => _showQrScanSheet(context),
-            icon: const Icon(Icons.qr_code_rounded),
-            label: const Text('Scan QR'),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const SizedBox(height: 8),
-            Text(
-              'Enter Token Number',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Enter the 4-digit token to look up an order',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 28),
-
-            // Token input boxes
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(4, (i) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: SizedBox(
-                    width: 64,
-                    height: 72,
-                    child: TextFormField(
-                      controller: _ctrls[i],
-                      focusNode: _focusNodes[i],
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      maxLength: 1,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: theme.colorScheme.primary,
-                      ),
-                      decoration: InputDecoration(
-                        counterText: '',
-                        filled: true,
-                        fillColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.4)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      onChanged: (v) {
-                        if (v.isNotEmpty && i < 3) {
-                          _focusNodes[i + 1].requestFocus();
-                        }
-                        if (_token.length == 4) {
-                          FocusScope.of(context).unfocus();
-                          _lookup();
-                        }
-                      },
-                    ),
-                  ),
-                );
-              }),
-            ),
-
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _clear,
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('Clear'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: _token.length == 4 ? _lookup : null,
-                  icon: const Icon(Icons.search_rounded, size: 16),
-                  label: const Text('Lookup'),
-                ),
-              ],
-            ),
-
-            if (_error != null) ...[
-              const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline, color: AppColors.error),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(_error!, style: const TextStyle(color: AppColors.error))),
-                  ],
-                ),
-              ),
-            ],
-
-            if (_result != null) ...[
-              const SizedBox(height: 24),
-              _VerificationResultCard(
-                order: _result!,
-                onStatusChanged: _refreshResult,
-              ),
-            ],
-
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showQrScanSheet(BuildContext context) {
+  void _showQrScanSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) => _QrScanSheet(
-        onResolved: (order) {
+        onResolved: (qrContent) {
           Navigator.pop(ctx);
-          setState(() {
-            _result = order;
-            _error = null;
-          });
-        },
-        onError: (msg) {
-          Navigator.pop(ctx);
-          setState(() {
-            _result = null;
-            _error = msg;
-          });
+          _verify(qrContent);
         },
       ),
     );
   }
-}
 
-class _QrScanSheet extends ConsumerStatefulWidget {
-  final ValueChanged<Order> onResolved;
-  final ValueChanged<String> onError;
-
-  const _QrScanSheet({required this.onResolved, required this.onError});
+  // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
-  ConsumerState<_QrScanSheet> createState() => _QrScanSheetState();
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = ref.watch(canteenL10nProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(s.verifyAndCollect),
+        actions: [
+          TextButton.icon(
+            onPressed: _showQrScanSheet,
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            label: Text(s.scanQr),
+          ),
+        ],
+      ),
+      body: _loading
+          ? AppLoadingState(message: s.verifyingOrder)
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 8),
+
+                  // Hero icon + title
+                  Icon(
+                    Icons.verified_user_rounded,
+                    size: 56,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    s.enterTokenTitle,
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    s.enterTokenSubtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 28),
+
+                  // ── Token digit boxes ──────────────────────────────
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(4, (i) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: SizedBox(
+                          width: 64,
+                          height: 72,
+                          child: TextFormField(
+                            controller: _ctrls[i],
+                            focusNode: _focusNodes[i],
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            maxLength: 1,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              color: theme.colorScheme.primary,
+                            ),
+                            decoration: InputDecoration(
+                              counterText: '',
+                              filled: true,
+                              fillColor: theme.colorScheme.primaryContainer
+                                  .withValues(alpha: 0.2),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                    color: theme.colorScheme.outline
+                                        .withValues(alpha: 0.4)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                    color: theme.colorScheme.primary,
+                                    width: 2),
+                              ),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            onChanged: (v) {
+                              if (v.isNotEmpty && i < 3) {
+                                _focusNodes[i + 1].requestFocus();
+                              } else if (v.isEmpty && i > 0) {
+                                _focusNodes[i - 1].requestFocus();
+                              }
+                              if (_token.length == 4) {
+                                _verifyToken();
+                              }
+                            },
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _clear,
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: Text(s.clearBtn),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _token.length == 4 ? _verifyToken : null,
+                        icon:
+                            const Icon(Icons.verified_outlined, size: 16),
+                        label: Text(s.verifyBtn),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── Result card ─────────────────────────────────────
+                  if (_result != null) _VerifyResultCard(result: _result!),
+
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+    );
+  }
 }
 
-class _QrScanSheetState extends ConsumerState<_QrScanSheet>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _scanCtrl;
-  late Animation<double> _scanAnim;
+// ─── QR Scan Sheet ───────────────────────────────────────────────────────────
+// Uses mobile_scanner (CameraX / ML Kit) for real camera-based QR scanning.
+// Duplicate-scan lock: _scanned flag is set on first valid barcode; camera is
+// stopped before returning so no further callbacks fire.
+
+class _QrScanSheet extends StatefulWidget {
+  final ValueChanged<String> onResolved;
+
+  const _QrScanSheet({required this.onResolved});
+
+  @override
+  State<_QrScanSheet> createState() => _QrScanSheetState();
+}
+
+class _QrScanSheetState extends State<_QrScanSheet> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    // Only QR codes
+    formats: [BarcodeFormat.qrCode],
+  );
+
+  /// Prevents duplicate backend calls if the camera fires multiple callbacks
+  /// before the sheet closes.
+  bool _scanned = false;
+
+  // Tracks permission state so we can show the right UI.
+  bool _permissionDenied = false;
 
   @override
   void initState() {
     super.initState();
-    _scanCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-    _scanAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _scanCtrl, curve: Curves.easeInOut),
-    );
+    // Start the camera. If permission is denied, MobileScanner will throw and
+    // onDetect will never fire. We listen to the controller's state stream to
+    // detect the denial.
+    _controller.addListener(_onControllerStateChange);
+  }
+
+  void _onControllerStateChange() {
+    final value = _controller.value;
+    if (!mounted) return;
+    // MobileScannerController.hasCameraPermission is false when denied.
+    if (value.hasCameraPermission == false && !_permissionDenied) {
+      setState(() => _permissionDenied = true);
+    }
+  }
+
+  /// Called when MobileScanner detects a barcode. Fires on the UI thread.
+  void _onDetect(BarcodeCapture capture) {
+    // Duplicate-scan guard: ignore any callback after the first valid one.
+    if (_scanned) return;
+    final raw = capture.barcodes
+        .where((b) => b.rawValue != null && b.rawValue!.isNotEmpty)
+        .map((b) => b.rawValue!)
+        .firstOrNull;
+    if (raw == null) return;
+
+    // Lock immediately to block any further callbacks.
+    _scanned = true;
+    // Stop camera before pop so it releases the preview cleanly.
+    _controller.stop();
+
+    // Debounce one frame so the controller has time to stop before we pop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.pop(context);
+      widget.onResolved(raw);
+    });
   }
 
   @override
-  void dispose() {
-    _scanCtrl.dispose();
+  Future<void> dispose() async {
+    _controller.removeListener(_onControllerStateChange);
+    await _controller.dispose();
     super.dispose();
   }
 
@@ -265,176 +326,396 @@ class _QrScanSheetState extends ConsumerState<_QrScanSheet>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
+    return Consumer(builder: (ctx, ref, _) {
+      final s = ref.watch(canteenL10nProvider);
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Drag handle ─────────────────────────────────────────
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            Text(
-              'Scan QR Code',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
 
-            // Mock camera view
-            Container(
-              width: 260,
-              height: 260,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
-                borderRadius: BorderRadius.circular(16),
+              Text(
+                s.scanStudentQr,
+                style: theme.textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
-              child: Stack(
-                children: [
-                  // Corner markers
-                  ..._buildCornerMarkers(),
-                  // Scan line
-                  AnimatedBuilder(
-                    animation: _scanAnim,
-                    builder: (ctx, _) {
-                      return Positioned(
-                        top: 20 + _scanAnim.value * 220,
-                        left: 20,
-                        right: 20,
-                        child: Container(
-                          height: 2,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.transparent,
-                                AppColors.accent,
-                                AppColors.accent,
-                                Colors.transparent,
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  // Center icon
-                  Center(
-                    child: Icon(
-                      Icons.qr_code_rounded,
-                      size: 80,
-                      color: Colors.white.withValues(alpha: 0.15),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 4),
+              Text(
+                s.pointCameraAt,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 16),
+
+              // ── Camera view OR permission-denied fallback ──────────
+              if (_permissionDenied)
+                _PermissionDeniedCard(s: s)
+              else
+                _CameraPreviewBox(controller: _controller, onDetect: _onDetect, s: s),
+
+              const SizedBox(height: 16),
+
+              // ── Cancel button ────────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.keyboard_rounded, size: 18),
+                  label: Text(s.cancelEnterManually),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+// ─── Camera Preview Box ───────────────────────────────────────────────────────
+/// Wraps MobileScanner in the familiar viewfinder box with corner markers and
+/// a scan-line overlay.
+class _CameraPreviewBox extends StatelessWidget {
+  final MobileScannerController controller;
+  final void Function(BarcodeCapture) onDetect;
+  final CanteenStrings s;
+
+  const _CameraPreviewBox({required this.controller, required this.onDetect, required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    const boxSize = 280.0;
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            width: boxSize,
+            height: boxSize,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Real camera preview
+                MobileScanner(
+                  controller: controller,
+                  onDetect: onDetect,
+                ),
+                // Viewfinder overlay
+                CustomPaint(painter: _ViewfinderPainter()),
+              ],
             ),
-            const SizedBox(height: 16),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.qr_code_scanner_rounded,
+                size: 14,
+                color: AppColors.primary.withValues(alpha: 0.75)),
+            const SizedBox(width: 6),
             Text(
-              'Point at the QR code',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 24),
-            AppButton(
-              label: 'Simulate Scan',
-              icon: Icons.qr_code_scanner_rounded,
-              onTap: () => _simulateScan(context),
+              s.cameraActive,
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.primary.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
-      ),
+      ],
     );
-  }
-
-  void _simulateScan(BuildContext context) {
-    final orders = ref.read(orderProvider.notifier).getActive();
-    if (orders.isEmpty) {
-      widget.onError('No active orders to simulate');
-      return;
-    }
-    final order = orders.first;
-    widget.onResolved(order);
-  }
-
-  List<Widget> _buildCornerMarkers() {
-    const size = 24.0;
-    const thick = 3.0;
-    const color = AppColors.accent;
-
-    Widget corner(double? top, double? bottom, double? left, double? right) {
-      return Positioned(
-        top: top,
-        bottom: bottom,
-        left: left,
-        right: right,
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: CustomPaint(painter: _CornerPainter(top != null, left != null, color, thick)),
-        ),
-      );
-    }
-
-    return [
-      corner(10, null, 10, null),
-      corner(10, null, null, 10),
-      corner(null, 10, 10, null),
-      corner(null, 10, null, 10),
-    ];
   }
 }
 
-class _CornerPainter extends CustomPainter {
-  final bool isTop;
-  final bool isLeft;
-  final Color color;
-  final double thickness;
-
-  const _CornerPainter(this.isTop, this.isLeft, this.color, this.thickness);
-
+// ─── Viewfinder Painter ───────────────────────────────────────────────────────
+/// Draws the four corner L-markers (accent colour) on top of the live preview.
+class _ViewfinderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
+    const cornerLen = 28.0;
+    const thick = 3.5;
+    const margin = 12.0;
+    const color = AppColors.accent;
+
     final paint = Paint()
       ..color = color
-      ..strokeWidth = thickness
+      ..strokeWidth = thick
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final path = Path();
-    if (isTop && isLeft) {
-      path.moveTo(0, size.height);
-      path.lineTo(0, 0);
-      path.lineTo(size.width, 0);
-    } else if (isTop && !isLeft) {
-      path.moveTo(0, 0);
-      path.lineTo(size.width, 0);
-      path.lineTo(size.width, size.height);
-    } else if (!isTop && isLeft) {
-      path.moveTo(0, 0);
-      path.lineTo(0, size.height);
-      path.lineTo(size.width, size.height);
-    } else {
-      path.moveTo(0, size.height);
-      path.lineTo(size.width, size.height);
-      path.lineTo(size.width, 0);
-    }
-    canvas.drawPath(path, paint);
+    // Top-left
+    canvas.drawLine(
+        Offset(margin, margin + cornerLen), Offset(margin, margin), paint);
+    canvas.drawLine(
+        Offset(margin, margin), Offset(margin + cornerLen, margin), paint);
+    // Top-right
+    canvas.drawLine(Offset(size.width - margin - cornerLen, margin),
+        Offset(size.width - margin, margin), paint);
+    canvas.drawLine(Offset(size.width - margin, margin),
+        Offset(size.width - margin, margin + cornerLen), paint);
+    // Bottom-left
+    canvas.drawLine(Offset(margin, size.height - margin - cornerLen),
+        Offset(margin, size.height - margin), paint);
+    canvas.drawLine(Offset(margin, size.height - margin),
+        Offset(margin + cornerLen, size.height - margin), paint);
+    // Bottom-right
+    canvas.drawLine(
+        Offset(size.width - margin - cornerLen, size.height - margin),
+        Offset(size.width - margin, size.height - margin),
+        paint);
+    canvas.drawLine(
+        Offset(size.width - margin, size.height - margin - cornerLen),
+        Offset(size.width - margin, size.height - margin),
+        paint);
   }
 
   @override
-  bool shouldRepaint(_CornerPainter old) => false;
+  bool shouldRepaint(_ViewfinderPainter old) => false;
 }
 
-class _VerificationResultCard extends ConsumerWidget {
+// ─── Permission Denied Card ───────────────────────────────────────────────────
+/// Shown when the user has denied camera permission. Guides staff to use
+/// manual token entry instead — no technical jargon.
+class _PermissionDeniedCard extends StatelessWidget {
+  final CanteenStrings s;
+  const _PermissionDeniedCard({required this.s});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.no_photography_rounded,
+              size: 48, color: AppColors.warning),
+          const SizedBox(height: 12),
+          Text(
+            s.cameraAccessNeeded,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: AppColors.warning,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            s.cameraDeniedMsg,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.warning.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.settings_rounded, size: 16),
+            label: Text(s.openAppSettings),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.warning,
+              side: const BorderSide(color: AppColors.warning),
+            ),
+            onPressed: () async {
+              // Opens the system settings page so staff can grant permission.
+              await SystemChannels.platform
+                  .invokeMethod<void>('SystemNavigator.routeUpdated');
+              // Best-effort: MobileScanner provides no direct settings opener;
+              // on modern Android the user must manually enable in Settings.
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Verification Result Card ────────────────────────────────────────────────
+
+class _VerifyResultCard extends ConsumerWidget {
+  final VerifyResult result;
+  const _VerifyResultCard({required this.result});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(canteenL10nProvider);
+
+    // ── Not found state ────────────────────────────────────────
+    if (!result.found) {
+      return _StatusBanner(
+        icon: Icons.search_off_rounded,
+        title: result.isNotFound
+            ? s.tokenNotFound
+            : s.verifyError,
+        subtitle: result.message,
+        color: AppColors.error,
+      );
+    }
+
+    final order = result.order!;
+
+    // ── Already completed ──────────────────────────────────────
+    if (result.isAlreadyCompleted) {
+      return Column(
+        children: [
+          _StatusBanner(
+            icon: Icons.check_circle_rounded,
+            title: s.alreadyCollected,
+            subtitle: s.alreadyCollectedSub,
+            color: AppColors.success,
+          ),
+          const SizedBox(height: 12),
+          _OrderSummaryCard(order: order, highlight: false, s: s),
+        ],
+      );
+    }
+
+    // ── Not paid yet ───────────────────────────────────────────
+    if (result.isNotPaid) {
+      return Column(
+        children: [
+          _StatusBanner(
+            icon: Icons.payment_rounded,
+            title: s.paymentPending,
+            subtitle: s.paymentPendingSub,
+            color: AppColors.warning,
+          ),
+          const SizedBox(height: 12),
+          _OrderSummaryCard(order: order, highlight: false, s: s),
+        ],
+      );
+    }
+
+    // ── Cancelled ──────────────────────────────────────────────
+    if (result.isCancelled) {
+      return Column(
+        children: [
+          _StatusBanner(
+            icon: Icons.cancel_rounded,
+            title: s.orderCancelled,
+            subtitle: s.orderCancelledSub,
+            color: AppColors.error,
+          ),
+          const SizedBox(height: 12),
+          _OrderSummaryCard(order: order, highlight: false, s: s),
+        ],
+      );
+    }
+
+    // ── Successfully completed ─────────────────────────────────
+    if (result.isCompleted) {
+      return Column(
+        children: [
+          _StatusBanner(
+            icon: Icons.verified_rounded,
+            title: s.orderVerifiedTitle,
+            subtitle: 'Token #${order.token} — ${order.studentName}',
+            color: AppColors.success,
+          ),
+          const SizedBox(height: 12),
+          _OrderSummaryCard(order: order, highlight: true, s: s),
+        ],
+      );
+    }
+
+    // ── Fallback: generic error ─────────────────────────────────
+    return _StatusBanner(
+      icon: Icons.warning_amber_rounded,
+      title: s.verifyIssue,
+      subtitle: result.message,
+      color: AppColors.warning,
+    );
+  }
+}
+
+// ─── Status Banner ───────────────────────────────────────────────────────────
+
+class _StatusBanner extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+
+  const _StatusBanner({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: color.withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Order Summary Card ──────────────────────────────────────────────────────
+
+class _OrderSummaryCard extends ConsumerWidget {
   final Order order;
-  final VoidCallback onStatusChanged;
-  const _VerificationResultCard({required this.order, required this.onStatusChanged});
+  final bool highlight;
+  final CanteenStrings s;
+
+  const _OrderSummaryCard({required this.order, required this.highlight, required this.s});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -451,7 +732,9 @@ class _VerificationResultCard extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: theme.colorScheme.primary,
+                  color: highlight
+                      ? AppColors.success
+                      : theme.colorScheme.primary,
                   letterSpacing: 2,
                 ),
               ),
@@ -460,43 +743,64 @@ class _VerificationResultCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 6),
-          Text(order.id, style: theme.textTheme.bodySmall?.copyWith(letterSpacing: 0.5)),
+          Text(
+            order.id,
+            style: theme.textTheme.bodySmall?.copyWith(letterSpacing: 0.5),
+          ),
           const Divider(height: 20),
 
-          // Student info
+          // Student
           Row(
             children: [
               CircleAvatar(
-                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+                radius: 18,
+                backgroundColor:
+                    theme.colorScheme.primary.withValues(alpha: 0.15),
                 child: Text(
-                  order.studentName[0].toUpperCase(),
-                  style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w700),
+                  order.studentName.isNotEmpty
+                      ? order.studentName[0].toUpperCase()
+                      : '?',
+                  style: TextStyle(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(order.studentName, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text(order.studentDept, style: theme.textTheme.bodySmall),
+                  Text(order.studentName,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(s.verifyStudentLabel,
+                      style: theme.textTheme.bodySmall),
                 ],
               ),
             ],
           ),
           const Divider(height: 20),
 
-          Text('Ordered Items', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            s.verifyItemsLabel,
+            style: theme.textTheme.labelMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           ...order.items.map((item) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
-                    Text(item.emoji),
-                    const SizedBox(width: 6),
+                    if (item.emoji.isNotEmpty) ...[
+                      Text(item.emoji),
+                      const SizedBox(width: 6),
+                    ],
                     Expanded(child: Text(item.name)),
-                    Text('x${item.quantity}', style: theme.textTheme.bodySmall),
+                    Text('×${item.quantity}',
+                        style: theme.textTheme.bodySmall),
                     const SizedBox(width: 8),
-                    Text('Rs. ${item.lineTotal.toInt()}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Rs. ${item.lineTotal.toInt()}',
+                        style:
+                            const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
               )),
@@ -504,14 +808,17 @@ class _VerificationResultCard extends ConsumerWidget {
 
           Row(
             children: [
-              const Text('Total', style: TextStyle(fontWeight: FontWeight.w700)),
+              Text(s.verifyTotalLabel,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
               const Spacer(),
               Text(
                 'Rs. ${order.total.toInt()}',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
-                  color: theme.colorScheme.primary,
+                  color: highlight
+                      ? AppColors.success
+                      : theme.colorScheme.primary,
                 ),
               ),
             ],
@@ -521,97 +828,8 @@ class _VerificationResultCard extends ConsumerWidget {
             '${order.paymentMethod} • ${AppUtils.formatDateTime(order.placedAt)}',
             style: theme.textTheme.bodySmall,
           ),
-
-          if (order.status == 'Collected') ...[
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 18),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'This order has already been collected',
-                      style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 16),
-            _ActionButtons(order: order, onStatusChanged: onStatusChanged),
-          ],
         ],
       ),
     );
-  }
-}
-
-class _ActionButtons extends ConsumerWidget {
-  final Order order;
-  final VoidCallback onStatusChanged;
-  const _ActionButtons({required this.order, required this.onStatusChanged});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(orderProvider.notifier);
-
-    if (order.status == 'Preparing' || order.status == 'Scheduled') {
-      return AppButton(
-        label: 'Mark as Ready',
-        icon: Icons.notifications_active_rounded,
-        onTap: () async {
-          await notifier.updateStatus(order.id, 'Ready');
-          onStatusChanged();
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Order marked as Ready')),
-            );
-          }
-        },
-      );
-    }
-
-    if (order.status == 'Ready') {
-      return AppButton(
-        label: 'Mark as Verified',
-        icon: Icons.verified_rounded,
-        onTap: () async {
-          await notifier.updateStatus(order.id, 'Verified');
-          onStatusChanged();
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Order Verified')),
-            );
-          }
-        },
-      );
-    }
-
-    if (order.status == 'Verified') {
-      return AppButton(
-        label: 'Mark as Collected',
-        icon: Icons.check_circle_rounded,
-        onTap: () async {
-          await notifier.updateStatus(order.id, 'Collected');
-          onStatusChanged();
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Order Collected - Thank you!')),
-            );
-          }
-        },
-      );
-    }
-
-    return const SizedBox.shrink();
   }
 }

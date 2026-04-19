@@ -3,6 +3,13 @@ import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_language_provider.dart';
+import 'package:campus_eats_ag/core/l10n/canteen_strings.dart';
+import 'package:campus_eats_ag/core/services/esc_receipt_builder.dart';
+import 'package:campus_eats_ag/core/services/thermal_printer_service.dart';
 import 'package:campus_eats_ag/core/theme/app_colors.dart';
 import 'package:campus_eats_ag/core/utils/app_utils.dart';
 import 'package:campus_eats_ag/core/widgets/shared_widgets.dart';
@@ -50,6 +57,15 @@ class CanteenOrdersNotifier extends AsyncNotifier<List<Order>> {
     await repo.printOrder(orderId);
     await refresh();
   }
+
+  /// Phase 11: Mark order as ready for pickup.
+  /// Fires push notification to customer. Idempotent.
+  Future<void> markReady(String orderId) async {
+    dev.log('[CANTEEN] markReady orderId=$orderId', name: 'CanteenOrders');
+    final repo = ref.read(orderRepositoryProvider);
+    await repo.markReady(orderId);
+    await refresh();
+  }
 }
 
 // ─── Screen ──────────────────────────────────────────────────────────────
@@ -70,14 +86,22 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
   String _query = '';
   late TabController _tabController;
 
+  // ── Smart-poll state ─────────────────────────────────────────
+  int _lastKnownQueueCount = -1; // -1 = initial / unknown
+  String? _lastKnownOrderedAt;
+  bool _showNewOrderBanner = false;
+  int _newOrderDelta = 0;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    // Auto-refresh every 15 s
-    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) ref.read(canteenOrdersProvider.notifier).refresh();
+    // Smart adaptive poll every 8 seconds — lightweight /poll endpoint only
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (mounted) _smartPoll();
     });
+    // Seed the initial count on first build
+    WidgetsBinding.instance.addPostFrameCallback((_) => _seedInitialCount());
   }
 
   @override
@@ -87,6 +111,67 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
     _pollTimer?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// After the initial full-load, record the queue count so subsequent smart
+  /// polls can detect a net-new order without a full refresh.
+  void _seedInitialCount() {
+    final asyncOrders = ref.read(canteenOrdersProvider);
+    asyncOrders.whenData((orders) {
+      final queueCount =
+          orders.where((o) => !o.isPrinted && !o.isCompleted && !o.isCancelled).length;
+      _lastKnownQueueCount = queueCount;
+      dev.log('[POLL] seeded initial count=$queueCount', name: 'SmartPoll');
+    });
+  }
+
+  /// Lightweight poll — only calls /canteen/orders/poll.
+  /// If the queue count has grown → show banner + full refresh.
+  /// Spam-protected: banner won't re-fire if count didn't change.
+  Future<void> _smartPoll() async {
+    try {
+      final repo = ref.read(orderRepositoryProvider);
+      final result = await repo.pollOrderQueue();
+      final newCount = result.count;
+      final newOrderedAt = result.latestOrderedAt;
+
+      dev.log(
+        '[POLL] count=$newCount latestOrderedAt=$newOrderedAt (last=$_lastKnownQueueCount)',
+        name: 'SmartPoll',
+      );
+
+      // Initial seed if still unknown (race condition on startup)
+      if (_lastKnownQueueCount < 0) {
+        _lastKnownQueueCount = newCount;
+        _lastKnownOrderedAt = newOrderedAt;
+        return;
+      }
+
+      // New orders arrived in queue
+      final delta = newCount - _lastKnownQueueCount;
+      if (delta > 0 && newOrderedAt != _lastKnownOrderedAt) {
+        dev.log('[POLL] ⚡ $delta new order(s) detected — triggering full refresh', name: 'SmartPoll');
+        // Full refresh to get actual order data
+        await ref.read(canteenOrdersProvider.notifier).refresh();
+        if (mounted) {
+          setState(() {
+            _showNewOrderBanner = true;
+            _newOrderDelta = delta;
+          });
+          // Auto-dismiss banner after 4 seconds
+          Future.delayed(const Duration(seconds: 4), () {
+            if (mounted) setState(() => _showNewOrderBanner = false);
+          });
+        }
+      }
+
+      // Update tracking state
+      _lastKnownQueueCount = newCount;
+      _lastKnownOrderedAt = newOrderedAt;
+    } catch (e) {
+      dev.log('[POLL] error: $e', name: 'SmartPoll');
+      // Silent fail — poll is supplementary; manual refresh always available
+    }
   }
 
   void _onSearch(String q) {
@@ -113,15 +198,16 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
     final themeMode = ref.watch(themeProvider);
     final isDark = themeMode == 2;
     final theme = Theme.of(context);
+    final s = ref.watch(canteenL10nProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Kitchen Orders', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            Text(s.kitchenOrders, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             Text(
-              'CampusEats Canteen',
+              s.campusEatsCanteen,
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
@@ -131,24 +217,23 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
           ],
         ),
         actions: [
-          // Dark mode toggle — 1-tap from home screen (Phase 3 requirement)
           IconButton(
             icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
-            tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
-            onPressed: () =>
-                ref.read(themeProvider.notifier).toggleDark(),
+            tooltip: isDark ? s.switchToLight : s.switchToDark,
+            onPressed: () => ref.read(themeProvider.notifier).toggleDark(),
           ),
-          // Help / Contact — 1-tap from home screen
           IconButton(
             icon: const Icon(Icons.help_outline_rounded),
-            tooltip: 'Help & Contact',
+            tooltip: s.helpAndContact,
             onPressed: _showHelp,
           ),
-          // Manual refresh
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh orders',
-            onPressed: () => ref.read(canteenOrdersProvider.notifier).refresh(),
+            tooltip: s.refreshOrders,
+            onPressed: () {
+              setState(() => _showNewOrderBanner = false);
+              ref.read(canteenOrdersProvider.notifier).refresh();
+            },
           ),
         ],
         bottom: PreferredSize(
@@ -161,7 +246,7 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
                   controller: _searchCtrl,
                   onChanged: _onSearch,
                   decoration: InputDecoration(
-                    hintText: 'Search token, name, or item…',
+                    hintText: s.search,
                     prefixIcon: const Icon(Icons.search_rounded, size: 20),
                     suffixIcon: _query.isNotEmpty
                         ? IconButton(
@@ -184,10 +269,10 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
               ),
               TabBar(
                 controller: _tabController,
-                tabs: const [
-                  Tab(text: 'Queue'),
-                  Tab(text: 'Printed'),
-                  Tab(text: 'Completed'),
+                tabs: [
+                  Tab(text: s.tabQueue),
+                  Tab(text: s.tabPrinted),
+                  Tab(text: s.tabCompleted),
                 ],
                 labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
@@ -196,68 +281,153 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
           ),
         ),
       ),
-      body: asyncOrders.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.wifi_off_rounded, size: 52, color: Colors.grey),
-              const SizedBox(height: 16),
-              Text(
-                'Could not load orders',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      body: Column(
+        children: [
+          // ── New Order Banner (auto-dismissing) ─────────────────────
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _showNewOrderBanner
+                ? _NewOrderBanner(
+                    delta: _newOrderDelta,
+                    s: s,
+                    onDismiss: () => setState(() => _showNewOrderBanner = false),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          // ── Main Orders Content ─────────────────────────────────────
+          Expanded(
+            child: asyncOrders.when(
+              loading: () => Consumer(builder: (ctx, r, _) {
+                final sl = r.watch(canteenL10nProvider);
+                return AppLoadingState(message: sl.loadingOrders);
+              }),
+              error: (e, _) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.wifi_off_rounded, size: 52, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    Text(
+                      s.failedPrefix,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text('$e', textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+                    const SizedBox(height: 20),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(s.menuRefresh),
+                      onPressed: () =>
+                          ref.read(canteenOrdersProvider.notifier).refresh(),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-              Text('$e', textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Try Again'),
-                onPressed: () =>
-                    ref.read(canteenOrdersProvider.notifier).refresh(),
-              ),
+              data: (orders) {
+                // Apply search filter
+                final filtered = _query.isNotEmpty
+                    ? orders.where((o) {
+                        final q = _query.toLowerCase();
+                        return o.token.contains(q) ||
+                            o.studentName.toLowerCase().contains(q) ||
+                            o.facultyName.toLowerCase().contains(q) ||
+                            o.facultyRoom.toLowerCase().contains(q) ||
+                            o.items.any((i) => i.name.toLowerCase().contains(q));
+                      }).toList()
+                    : orders;
+
+                // ── Partition orders into three canteen buckets ──────────────
+                final queueOrders = filtered
+                    .where((o) => !o.isPrinted && !o.isCompleted && !o.isCancelled)
+                    .toList();
+                final printedOrders =
+                    filtered.where((o) => o.isPrinted && !o.isCompleted).toList();
+                final completedOrders =
+                    filtered.where((o) => o.isCompleted).toList();
+
+                // Update the last known queue count from the FULL (unfiltered) orders list.
+                // Using the search-filtered queueOrders.length would produce a falsely-low
+                // count whenever a search query is active, causing the next poll to see a
+                // spurious positive delta and show a phantom "new order" banner.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _lastKnownQueueCount = orders
+                      .where((o) => !o.isPrinted && !o.isCompleted && !o.isCancelled)
+                      .length;
+                });
+
+                Future<void> doRefresh() =>
+                    ref.read(canteenOrdersProvider.notifier).refresh();
+
+                return TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _QueueTab(orders: queueOrders, onRefresh: doRefresh, s: s),
+                    _PrintedTab(orders: printedOrders, onRefresh: doRefresh, s: s),
+                    _CompletedTab(orders: completedOrders, onRefresh: doRefresh, s: s),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── New Order Banner ────────────────────────────────────────────────────
+
+class _NewOrderBanner extends StatelessWidget {
+  final int delta;
+  final CanteenStrings s;
+  final VoidCallback onDismiss;
+
+  const _NewOrderBanner({
+    required this.delta,
+    required this.s,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = delta == 1
+        ? s.newOrderBannerSingle
+        : s.newOrderBannerMultiple(delta);
+    return Material(
+      elevation: 4,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppColors.primary.withValues(alpha: 0.92),
+              AppColors.primary,
             ],
           ),
         ),
-        data: (orders) {
-          // Apply search filter
-          final filtered = _query.isNotEmpty
-              ? orders.where((o) {
-                  final q = _query.toLowerCase();
-                  return o.token.contains(q) ||
-                      o.studentName.toLowerCase().contains(q) ||
-                      o.items.any((i) => i.name.toLowerCase().contains(q));
-                }).toList()
-              : orders;
-
-          // ── Partition orders into three canteen buckets ──────────────
-          // Queue   = paid + NOT yet printed + not completed
-          // Printed = printedAt is set + not yet collected
-          // Completed = isCompleted (status == 'Collected')
-          // NOTE: do NOT use o.isActive for Queue, because isActive no longer
-          //       excludes isPrinted (that was a regression — isActive is a
-          //       shared student-side getter and must remain student-safe).
-          final queueOrders = filtered
-              .where((o) => !o.isPrinted && !o.isCompleted && !o.isCancelled)
-              .toList();
-          final printedOrders =
-              filtered.where((o) => o.isPrinted && !o.isCompleted).toList();
-          final completedOrders =
-              filtered.where((o) => o.isCompleted).toList();
-
-          Future<void> doRefresh() =>
-              ref.read(canteenOrdersProvider.notifier).refresh();
-
-          return TabBarView(
-            controller: _tabController,
-            children: [
-              _QueueTab(orders: queueOrders, onRefresh: doRefresh),
-              _PrintedTab(orders: printedOrders, onRefresh: doRefresh),
-              _CompletedTab(orders: completedOrders, onRefresh: doRefresh),
-            ],
-          );
-        },
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: onDismiss,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -266,34 +436,45 @@ class _CanteenOrdersScreenState extends ConsumerState<CanteenOrdersScreen>
 
 // ─── Queue Tab (Active = Prepare Now + Scheduled) ───────────────────────
 
-class _QueueTab extends StatelessWidget {
+class _QueueTab extends StatefulWidget {
   final List<Order> orders;
   final Future<void> Function() onRefresh;
-  const _QueueTab({required this.orders, required this.onRefresh});
+  final CanteenStrings s;
+  const _QueueTab({required this.orders, required this.onRefresh, required this.s});
+
+  @override
+  State<_QueueTab> createState() => _QueueTabState();
+}
+
+class _QueueTabState extends State<_QueueTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    if (orders.isEmpty) {
+    super.build(context); // required for AutomaticKeepAliveClientMixin
+    if (widget.orders.isEmpty) {
       return RefreshIndicator(
-        onRefresh: onRefresh,
-        child: const SingleChildScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
+        onRefresh: widget.onRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: 400,
             child: EmptyState(
               icon: Icons.restaurant_menu_rounded,
-              title: 'Queue is clear!',
-              subtitle: 'New paid orders appear here — pull to refresh',
+              title: widget.s.emptyQueue,
+              subtitle: widget.s.emptyQueueSub,
             ),
           ),
         ),
       );
     }
 
-    final groups = _groupOrders(orders);
+    final groups = _groupOrders(widget.orders, widget.s);
 
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: widget.onRefresh,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         physics: const AlwaysScrollableScrollPhysics(),
@@ -308,12 +489,13 @@ class _QueueTab extends StatelessWidget {
                 count: group.orders.length,
                 color: group.headerColor,
                 icon: group.headerIcon,
+                s: widget.s,
               ),
               const SizedBox(height: 8),
               ...group.orders.map(
                 (o) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: _CanteenOrderCard(order: o, cardType: CanteenCardType.queue),
+                  child: _CanteenOrderCard(order: o, cardType: CanteenCardType.queue, s: widget.s),
                 ),
               ),
               const SizedBox(height: 8),
@@ -324,7 +506,7 @@ class _QueueTab extends StatelessWidget {
     );
   }
 
-  List<_OrderGroup> _groupOrders(List<Order> orders) {
+  List<_OrderGroup> _groupOrders(List<Order> orders, CanteenStrings s) {
     final prepareNow = <Order>[];
     final scheduledGroups = <String, List<Order>>{};
 
@@ -345,7 +527,6 @@ class _QueueTab extends StatelessWidget {
       }
     }
 
-    // ── Sort: newest orders at the top within each bucket ────────────────
     prepareNow.sort((a, b) => b.placedAt.compareTo(a.placedAt));
     for (final group in scheduledGroups.values) {
       group.sort((a, b) => b.placedAt.compareTo(a.placedAt));
@@ -355,14 +536,13 @@ class _QueueTab extends StatelessWidget {
 
     if (prepareNow.isNotEmpty) {
       groups.add(_OrderGroup(
-        label: 'Prepare Now',
+        label: s.prepareNow,
         orders: prepareNow,
         headerColor: AppColors.error,
         headerIcon: Icons.flash_on_rounded,
       ));
     }
 
-    // Scheduled slots sorted by time label (lexicographic = chronological for HH:MM AM/PM)
     final sortedSlots = scheduledGroups.keys.toList()..sort();
     for (final slot in sortedSlots) {
       groups.add(_OrderGroup(
@@ -393,43 +573,53 @@ class _OrderGroup {
 
 // ─── Printed Tab ─────────────────────────────────────────────────────────
 
-class _PrintedTab extends StatelessWidget {
+class _PrintedTab extends StatefulWidget {
   final List<Order> orders;
   final Future<void> Function() onRefresh;
-  const _PrintedTab({required this.orders, required this.onRefresh});
+  final CanteenStrings s;
+  const _PrintedTab({required this.orders, required this.onRefresh, required this.s});
+
+  @override
+  State<_PrintedTab> createState() => _PrintedTabState();
+}
+
+class _PrintedTabState extends State<_PrintedTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    if (orders.isEmpty) {
+    super.build(context);
+    if (widget.orders.isEmpty) {
       return RefreshIndicator(
-        onRefresh: onRefresh,
-        child: const SingleChildScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
+        onRefresh: widget.onRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: 400,
             child: EmptyState(
               icon: Icons.print_rounded,
-              title: 'No printed orders',
-              subtitle: 'When you print a slip, the order moves here',
+              title: widget.s.emptyPrinted,
+              subtitle: widget.s.emptyPrintedSub,
             ),
           ),
         ),
       );
     }
 
-    // Newest printed first
-    final sorted = [...orders]..sort((a, b) =>
+    final sorted = [...widget.orders]..sort((a, b) =>
         (b.printedAt ?? b.placedAt).compareTo(a.printedAt ?? a.placedAt));
 
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: widget.onRefresh,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: sorted.length,
         separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (ctx, i) =>
-            _CanteenOrderCard(order: sorted[i], cardType: CanteenCardType.printed),
+            _CanteenOrderCard(order: sorted[i], cardType: CanteenCardType.printed, s: widget.s),
       ),
     );
   }
@@ -437,42 +627,52 @@ class _PrintedTab extends StatelessWidget {
 
 // ─── Completed Tab ───────────────────────────────────────────────────────
 
-class _CompletedTab extends StatelessWidget {
+class _CompletedTab extends StatefulWidget {
   final List<Order> orders;
   final Future<void> Function() onRefresh;
-  const _CompletedTab({required this.orders, required this.onRefresh});
+  final CanteenStrings s;
+  const _CompletedTab({required this.orders, required this.onRefresh, required this.s});
+
+  @override
+  State<_CompletedTab> createState() => _CompletedTabState();
+}
+
+class _CompletedTabState extends State<_CompletedTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    if (orders.isEmpty) {
+    super.build(context);
+    if (widget.orders.isEmpty) {
       return RefreshIndicator(
-        onRefresh: onRefresh,
-        child: const SingleChildScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
+        onRefresh: widget.onRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: 400,
             child: EmptyState(
               icon: Icons.check_circle_outline_rounded,
-              title: 'No completed orders',
-              subtitle: 'Verified and collected orders appear here',
+              title: widget.s.emptyCompleted,
+              subtitle: widget.s.emptyCompletedSub,
             ),
           ),
         ),
       );
     }
 
-    // Newest completed first
-    final sorted = [...orders]..sort((a, b) => b.placedAt.compareTo(a.placedAt));
+    final sorted = [...widget.orders]..sort((a, b) => b.placedAt.compareTo(a.placedAt));
 
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: widget.onRefresh,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: sorted.length,
         separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (ctx, i) =>
-            _CanteenOrderCard(order: sorted[i], cardType: CanteenCardType.completed),
+            _CanteenOrderCard(order: sorted[i], cardType: CanteenCardType.completed, s: widget.s),
       ),
     );
   }
@@ -485,12 +685,14 @@ class _SectionHeader extends StatelessWidget {
   final int count;
   final Color color;
   final IconData icon;
+  final CanteenStrings s;
 
   const _SectionHeader({
     required this.label,
     required this.count,
     required this.color,
     required this.icon,
+    required this.s,
   });
 
   @override
@@ -523,7 +725,7 @@ class _SectionHeader extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          '$count order${count == 1 ? '' : 's'}',
+          s.orderCount(count),
           style: theme.textTheme.bodySmall
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
@@ -541,7 +743,8 @@ enum CanteenCardType { queue, printed, completed }
 class _CanteenOrderCard extends ConsumerWidget {
   final Order order;
   final CanteenCardType cardType;
-  const _CanteenOrderCard({required this.order, required this.cardType});
+  final CanteenStrings s;
+  const _CanteenOrderCard({required this.order, required this.cardType, required this.s});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -589,32 +792,67 @@ class _CanteenOrderCard extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    // Role chip (Student / Faculty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryLight.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Student', // Future: derive from studentDept/role field
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryLight,
-                        ),
-                      ),
+                    Row(
+                      children: [
+                        if (order.customerRole == 'faculty') ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              s.faculty,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.warning,
+                              ),
+                            ),
+                          ),
+                          if (order.facultyRoom.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Icon(Icons.meeting_room_outlined,
+                                size: 12,
+                                color: theme.colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 2),
+                            Text(
+                              order.facultyRoom,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ] else
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryLight.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              s.student,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryLight,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              // State chip on the right
               if (cardType == CanteenCardType.printed)
-                _StateChip(label: 'PRINTED', color: AppColors.warning, icon: Icons.print_rounded)
+                const _StateChip(label: 'PRINTED', color: AppColors.warning, icon: Icons.print_rounded)
               else if (cardType == CanteenCardType.completed)
-                _StateChip(label: 'DONE', color: AppColors.success, icon: Icons.check_circle_rounded)
+                const _StateChip(label: 'DONE', color: AppColors.success, icon: Icons.check_circle_rounded)
               else if (order.isScheduled)
-                _StateChip(label: 'SCHEDULED', color: AppColors.statusScheduled, icon: Icons.schedule_rounded),
+                const _StateChip(label: 'SCHEDULED', color: AppColors.statusScheduled, icon: Icons.schedule_rounded),
             ],
           ),
 
@@ -641,7 +879,7 @@ class _CanteenOrderCard extends ConsumerWidget {
                 const Icon(Icons.flag_rounded, size: 13, color: AppColors.statusScheduled),
                 const SizedBox(width: 4),
                 Text(
-                  'Pickup at ${AppUtils.formatTimeShort(order.scheduledFor!)}',
+                  s.pickupAt(AppUtils.formatTimeShort(order.scheduledFor!)),
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -724,9 +962,9 @@ class _CanteenOrderCard extends ConsumerWidget {
                   color: AppColors.success.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Text(
-                  'PAID',
-                  style: TextStyle(
+                child: Text(
+                  s.paid,
+                  style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     color: AppColors.success,
@@ -734,14 +972,49 @@ class _CanteenOrderCard extends ConsumerWidget {
                 ),
               ),
               const Spacer(),
-              // Primary action button
               _CardAction(
-                label: 'Open Slip',
+                label: s.openSlip,
                 icon: Icons.receipt_long_rounded,
                 onTap: () => _openSlip(context, ref),
               ),
             ],
           ),
+
+          // ── Phase 11: Mark Ready button (queue cards only) ───────
+          if (cardType == CanteenCardType.queue) ...[
+            const SizedBox(height: 10),
+            order.isReady
+                ? Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle_rounded,
+                            size: 15, color: AppColors.success),
+                        const SizedBox(width: 6),
+                        Text(
+                          s.orderReady,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.success,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : SizedBox(
+                    width: double.infinity,
+                    child: _MarkReadyButton(orderId: order.id, s: s),
+                  ),
+          ],
         ],
       ),
     );
@@ -768,14 +1041,307 @@ class _CanteenOrderCard extends ConsumerWidget {
       builder: (ctx) => CanteenSlipBottomSheet(
         order: order,
         cardType: cardType,
-        onMarkPrinted: cardType == CanteenCardType.queue
+        onDirectPrint: cardType == CanteenCardType.queue
             ? () async {
                 Navigator.pop(ctx);
-                await ref
-                    .read(canteenOrdersProvider.notifier)
-                    .printOrder(order.id);
+                await _doPrintDirect(context, ref);
               }
             : null,
+        onFallbackPrint: cardType == CanteenCardType.queue
+            ? () async {
+                Navigator.pop(ctx);
+                await _doPrintFallback(context, ref);
+              }
+            : null,
+      ),
+    );
+  }
+
+  /// Phase 11 Print Semantics (hardened):
+  ///   1. Attempt direct ESC/POS thermal print (if printer paired)
+  ///   2. On ESC/POS success → commit printedAt on backend
+  ///   3. On ESC/POS failure or no printer → show explicit warning,
+  ///      DO NOT silently commit printedAt — staff must use explicit fallback
+  ///
+  /// This is called from the "🖨 Direct Thermal Print" button in the slip sheet.
+  Future<void> _doPrintDirect(BuildContext context, WidgetRef ref) async {
+    final thermalSvc = ThermalPrinterService.instance;
+    final sl = ref.read(canteenL10nProvider);
+
+    // ── If no printer paired, immediately route to fallback ─────────────────
+    if (!thermalSvc.hasPrinter) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(sl.thermalDisconnected),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: sl.fallbackPrint,
+              onPressed: () => _doPrintFallback(context, ref),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // ── Build ESC/POS ticket ─────────────────────────────────────────────────
+    final ticket = await EscReceiptBuilder.buildTicket(order);
+    if (ticket == null) {
+      dev.log('[PRINT] ESC receipt build failed', name: 'PrintSlip');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(sl.thermalNotFound),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: sl.fallbackPrint,
+              onPressed: () => _doPrintFallback(context, ref),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // ── Attempt direct thermal print ─────────────────────────────────────────
+    dev.log('[PRINT] Attempting direct thermal print…', name: 'PrintSlip');
+    final result = await thermalSvc.printTicket(ticket);
+
+    if (result == ThermalPrintResult.success) {
+      // Physical output confirmed → NOW safe to commit printedAt
+      try {
+        await ref.read(canteenOrdersProvider.notifier).printOrder(order.id);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(sl.printDirect),
+              backgroundColor: AppColors.success,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } catch (e) {
+        // Backend commit failed after physical print — show warn, not error
+        dev.log('[PRINT] Backend printOrder failed after direct print: $e', name: 'PrintSlip');
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${sl.printDirect} (${sl.printBackendFailed}: $e)'),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        }
+      }
+    } else {
+      // Thermal print failed — DO NOT commit printedAt — offer fallback
+      dev.log('[PRINT] Direct thermal failed: $result', name: 'PrintSlip');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(sl.thermalNotFound),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: sl.fallbackPrint,
+              onPressed: () => _doPrintFallback(context, ref),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Phase 11: System/PDF fallback print.
+  /// Staff explicitly chooses this path (or it's shown when thermal is unavailable).
+  /// printedAt is committed only AFTER the system print dialog confirms output.
+  Future<void> _doPrintFallback(BuildContext context, WidgetRef ref) async {
+    final sl = ref.read(canteenL10nProvider);
+    dev.log('[PRINT] Fallback PDF print: order ${order.id}', name: 'PrintSlip');
+    try {
+      final pdfBytes = await _buildSlipPdf(order).save();
+      final printed = await Printing.layoutPdf(
+        onLayout: (_) async => pdfBytes,
+        name: 'CampusEats_Token_${order.token}',
+      );
+
+      if (!printed) {
+        // Dialog dismissed without printing — DO NOT commit printedAt
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Print cancelled — order NOT marked as printed.'),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        }
+        return;
+      }
+
+      // PDF printed → commit printedAt on backend
+      await ref.read(canteenOrdersProvider.notifier).printOrder(order.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(sl.printFallbackSuccess),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      dev.log('[PRINT] Fallback print error: $e', name: 'PrintSlip');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${sl.printBackendFailed}: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Builds a thermal-style PDF slip for the order.
+  pw.Document _buildSlipPdf(Order order) {
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: const PdfPageFormat(
+          80 * PdfPageFormat.mm, // 80mm wide — standard thermal roll
+          double.infinity,
+          marginAll: 6 * PdfPageFormat.mm,
+        ),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              pw.Text(
+                'CAMPUS EATS',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                '#${order.token}',
+                style: pw.TextStyle(
+                  fontSize: 36,
+                  fontWeight: pw.FontWeight.bold,
+                  letterSpacing: 4,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                order.customerRole == 'faculty' ? 'FACULTY ORDER' : 'STUDENT ORDER',
+                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 4),
+              _pdfRow('Name', order.studentName),
+              if (order.customerRole == 'faculty') ...[
+                if (order.facultyDept.isNotEmpty) _pdfRow('Dept', order.facultyDept),
+                if (order.facultyRoom.isNotEmpty) _pdfRow('Room', order.facultyRoom),
+              ],
+              _pdfRow('Ordered', AppUtils.formatDateTime(order.placedAt)),
+              if (order.isScheduled && order.scheduledFor != null)
+                _pdfRow('Pickup', AppUtils.formatTimeShort(order.scheduledFor!))
+              else if (order.estimatedReadyAt != null)
+                _pdfRow('Ready By', AppUtils.formatTimeShort(order.estimatedReadyAt!)),
+              _pdfRow('Payment', 'PAID • UPI/Razorpay'),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 4),
+              pw.Align(
+                alignment: pw.Alignment.centerLeft,
+                child: pw.Text(
+                  'ORDER ITEMS',
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    fontWeight: pw.FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              ...order.items.map((item) => pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                    child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Expanded(
+                          child: pw.Text(
+                            item.name,
+                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+                          ),
+                        ),
+                        pw.Text(
+                          '×${item.quantity}',
+                          style: const pw.TextStyle(fontSize: 12),
+                        ),
+                        pw.SizedBox(width: 12),
+                        pw.Text(
+                          'Rs.${item.lineTotal.toInt()}',
+                          style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  )),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 4),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'TOTAL',
+                    style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(
+                    'Rs. ${order.total.toInt()}',
+                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Thank you! Visit CampusEats again.',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return doc;
+  }
+
+  pw.Widget _pdfRow(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 60,
+            child: pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+          ),
+          pw.SizedBox(width: 6),
+          pw.Expanded(
+            child: pw.Text(
+              value,
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -855,18 +1421,97 @@ class _CardAction extends StatelessWidget {
   }
 }
 
+// ─── Mark Ready Button (Phase 11) ────────────────────────────────────────────
+//
+// Standalone ConsumerStatefulWidget so it can access the notifier and
+// show a SnackBar without prop-drilling WidgetRef or BuildContext up.
+
+class _MarkReadyButton extends ConsumerStatefulWidget {
+  final String orderId;
+  final CanteenStrings s;
+  const _MarkReadyButton({required this.orderId, required this.s});
+
+  @override
+  ConsumerState<_MarkReadyButton> createState() => _MarkReadyButtonState();
+}
+
+class _MarkReadyButtonState extends ConsumerState<_MarkReadyButton> {
+  bool _loading = false;
+
+  Future<void> _onTap() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      await ref
+          .read(canteenOrdersProvider.notifier)
+          .markReady(widget.orderId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.s.markedReady),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.s.failedMsg}: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: _loading ? null : _onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: _loading
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.notifications_active_rounded, size: 16),
+      label: Text(
+        widget.s.markReady,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+      ),
+    );
+  }
+}
+
 // ─── Canteen Slip Bottom Sheet ────────────────────────────────────────────
 
 class CanteenSlipBottomSheet extends StatelessWidget {
   final Order order;
   final CanteenCardType cardType;
-  final Future<void> Function()? onMarkPrinted;
+  /// Direct ESC/POS thermal print (Phase 11).
+  final Future<void> Function()? onDirectPrint;
+  /// System/PDF fallback print (Phase 10, always available).
+  final Future<void> Function()? onFallbackPrint;
 
   const CanteenSlipBottomSheet({
     super.key,
     required this.order,
     required this.cardType,
-    this.onMarkPrinted,
+    this.onDirectPrint,
+    this.onFallbackPrint,
   });
 
   @override
@@ -899,91 +1544,119 @@ class CanteenSlipBottomSheet extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // ── Slip header ─────────────────────────────────
-                  Text(
-                    'CAMPUS EATS',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSurfaceVariant,
-                      letterSpacing: 3.0,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // Large token display
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      '#${order.token}',
-                      style: const TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                        letterSpacing: 4,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Status badge
-                  if (cardType == CanteenCardType.printed)
-                    _StatusPill('PRINTED', AppColors.warning, Icons.print_rounded)
-                  else if (cardType == CanteenCardType.completed)
-                    _StatusPill('COLLECTED', AppColors.success, Icons.check_circle_rounded)
-                  else
-                    _StatusPill('ACTIVE', AppColors.primary, Icons.flash_on_rounded),
+                  Consumer(builder: (ctx2, ref2, _) {
+                    final sl = ref2.watch(canteenL10nProvider);
+                    return Column(
+                      children: [
+                        Text(
+                          sl.campusEats,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.onSurfaceVariant,
+                            letterSpacing: 3.0,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '#${order.token}',
+                            style: const TextStyle(
+                              fontSize: 40,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (cardType == CanteenCardType.printed)
+                          _StatusPill(sl.slipPrinted, AppColors.warning, Icons.print_rounded)
+                        else if (cardType == CanteenCardType.completed)
+                          _StatusPill(sl.slipCollected, AppColors.success, Icons.check_circle_rounded)
+                        else
+                          _StatusPill(sl.slipActive, AppColors.primary, Icons.flash_on_rounded),
+                      ],
+                    );
+                  }),
 
                   const SizedBox(height: 20),
-                  const _DottedDivider(),
+                  const DottedDivider(),
                   const SizedBox(height: 16),
 
-                  // ── Customer details ─────────────────────────────
-                  _SlipRow('Name', order.studentName),
-                  const SizedBox(height: 8),
-                  _SlipRow('Role', 'Student'),
-                  const SizedBox(height: 8),
-                  _SlipRow('Ordered', AppUtils.formatDateTime(order.placedAt)),
-                  if (order.isScheduled && order.scheduledFor != null) ...[
-                    const SizedBox(height: 8),
-                    _SlipRow(
-                      'Pickup Time',
-                      AppUtils.formatTimeShort(order.scheduledFor!),
-                      highlight: true,
-                      highlightColor: AppColors.statusScheduled,
-                    ),
-                  ] else if (order.estimatedReadyAt != null) ...[
-                    const SizedBox(height: 8),
-                    _SlipRow(
-                      'Ready By (ETA)',
-                      AppUtils.formatTimeShort(order.estimatedReadyAt!),
-                      highlight: true,
-                      highlightColor: AppColors.warning,
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  _SlipRow('Payment', 'PAID • UPI / Razorpay',
-                      highlight: true, highlightColor: AppColors.success),
+                  Consumer(builder: (ctx2, ref2, _) {
+                    final sl = ref2.watch(canteenL10nProvider);
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SlipRow(sl.slipName, order.studentName),
+                        const SizedBox(height: 8),
+                        _SlipRow(
+                          sl.slipRole,
+                          order.customerRole == 'faculty' ? sl.slipRoleFaculty : sl.slipRoleStudent,
+                        ),
+                        if (order.customerRole == 'faculty') ...[
+                          if (order.facultyDept.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _SlipRow(sl.slipDept, order.facultyDept),
+                          ],
+                          if (order.facultyRoom.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _SlipRow(sl.slipRoom, order.facultyRoom,
+                                highlight: true,
+                                highlightColor: AppColors.warning),
+                          ],
+                        ],
+                        const SizedBox(height: 8),
+                        _SlipRow(sl.slipOrdered, AppUtils.formatDateTime(order.placedAt)),
+                        if (order.isScheduled && order.scheduledFor != null) ...[
+                          const SizedBox(height: 8),
+                          _SlipRow(
+                            sl.slipPickupTime,
+                            AppUtils.formatTimeShort(order.scheduledFor!),
+                            highlight: true,
+                            highlightColor: AppColors.statusScheduled,
+                          ),
+                        ] else if (order.estimatedReadyAt != null) ...[
+                          const SizedBox(height: 8),
+                          _SlipRow(
+                            sl.slipReadyBy,
+                            AppUtils.formatTimeShort(order.estimatedReadyAt!),
+                            highlight: true,
+                            highlightColor: AppColors.warning,
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        _SlipRow(sl.slipPayment, sl.slipPaidLabel,
+                            highlight: true, highlightColor: AppColors.success),
+                      ],
+                    );
+                  }),
 
                   const SizedBox(height: 16),
-                  const _DottedDivider(),
+                  const DottedDivider(),
                   const SizedBox(height: 16),
 
-                  // ── Items ────────────────────────────────────────
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'ORDER ITEMS',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSurfaceVariant,
-                        letterSpacing: 2,
+                  Consumer(builder: (ctx2, ref2, _) {
+                    final sl = ref2.watch(canteenL10nProvider);
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        sl.slipOrderItems,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          letterSpacing: 2,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   const SizedBox(height: 10),
                   ...order.items.map((item) => Padding(
                         padding: const EdgeInsets.symmetric(vertical: 5),
@@ -1016,69 +1689,97 @@ class CanteenSlipBottomSheet extends StatelessWidget {
                       )),
 
                   const SizedBox(height: 12),
-                  const _DottedDivider(),
+                  const DottedDivider(),
                   const SizedBox(height: 12),
 
-                  // ── Total ────────────────────────────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('TOTAL',
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 1)),
-                      Text(
-                        'Rs. ${order.total.toInt()}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 22,
-                          color: theme.colorScheme.primary,
+                  Consumer(builder: (ctx2, ref2, _) {
+                    final sl = ref2.watch(canteenL10nProvider);
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(sl.slipTotal,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 1)),
+                        Text(
+                          'Rs. ${order.total.toInt()}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 22,
+                            color: theme.colorScheme.primary,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  }),
 
                   const SizedBox(height: 24),
 
                   // ── Action buttons ───────────────────────────────
-                  if (onMarkPrinted != null) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.print_rounded),
-                        label: const Text('Mark as Printed'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.warning,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        onPressed: onMarkPrinted,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-
-                  // Copy token for quick reference
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.copy_rounded, size: 16),
-                      label: Text('Copy Token #${order.token}'),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: order.token));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Token #${order.token} copied'),
-                            duration: const Duration(seconds: 2),
+                  Consumer(builder: (ctx2, ref2, _) {
+                    final sl = ref2.watch(canteenL10nProvider);
+                    return Column(
+                      children: [
+                        // ── Phase 11: Direct thermal print (primary) ──────────
+                        if (onDirectPrint != null) ...[
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.print_rounded),
+                              label: Text(
+                                ThermalPrinterService.instance.hasPrinter
+                                    ? sl.directPrint
+                                    : sl.fallbackPrint,
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              onPressed: onDirectPrint,
+                            ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
+                          const SizedBox(height: 8),
+                        ],
+                        // ── Phase 10/11: System/PDF fallback (always visible) ─
+                        if (onFallbackPrint != null) ...[
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                              label: Text(sl.fallbackPrint),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              onPressed: onFallbackPrint,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
 
-                  const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
-                  ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.copy_rounded, size: 16),
+                            label: Text(sl.copyTokenLabel(order.token)),
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: order.token));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(sl.tokenCopied(order.token)),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 10),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text(sl.slipClose),
+                        ),
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),
@@ -1164,28 +1865,4 @@ class _SlipRow extends StatelessWidget {
   }
 }
 
-class _DottedDivider extends StatelessWidget {
-  const _DottedDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, bc) {
-      const dashWidth = 6.0;
-      const dashSpace = 4.0;
-      final count = (bc.maxWidth / (dashWidth + dashSpace)).floor();
-      final color = Theme.of(context).colorScheme.outlineVariant;
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(
-          count,
-          (_) => Container(
-            width: dashWidth,
-            height: 1,
-            color: color,
-          ),
-        ),
-      );
-    });
-  }
-}
-
+// DottedDivider is now in shared_widgets.dart (exported as DottedDivider)
