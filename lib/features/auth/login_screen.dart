@@ -36,31 +36,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
 
-    // Try student first, then faculty (both use email + password)
+    // Try student first, then faculty (both use email + password).
+    // authProvider.login() / loginFaculty() update auth state on success.
+    // The GoRouter redirect in routerProvider watches authProvider and
+    // automatically navigates to /student when state becomes non-null —
+    // we must NOT call context.go() here because the router rebuild
+    // replaces the navigator stack and this context becomes stale.
     bool success = await ref.read(authProvider.notifier).login(
           _emailCtrl.text.trim(),
           _passCtrl.text.trim(),
         );
 
     if (!success) {
-      // Try faculty login
+      // Not a student — try faculty login with same credentials
       success = await ref.read(authProvider.notifier).loginFaculty(
             _emailCtrl.text.trim(),
             _passCtrl.text.trim(),
           );
     }
 
+    // Guard against widget being disposed while the future was in flight
     if (!mounted) return;
+
+    // Always clear the spinner whether login succeeded or failed
     setState(() => _loading = false);
 
-    if (success) {
-      final user = ref.read(authProvider);
-      if (user?.role == 'canteen') {
-        context.go('/canteen');
-      } else {
-        context.go('/student');
-      }
-    } else {
+    // If login failed (both student and faculty returned null), show error.
+    // If login succeeded, routerProvider redirect handles navigation — no
+    // explicit context.go() needed here.
+    if (!success) {
       setState(() => _error = 'Invalid email or password');
     }
   }
