@@ -35,15 +35,26 @@ final _studentShellKey =
     GlobalKey<NavigatorState>(debugLabel: 'studentShell');
 final _canteenShellKey =
     GlobalKey<NavigatorState>(debugLabel: 'canteenShell');
-final _adminShellKey =
-    GlobalKey<NavigatorState>(debugLabel: 'adminShell');
+final _adminShellKey = GlobalKey<NavigatorState>(debugLabel: 'adminShell');
+
+// ─── Auth listenable bridge ────────────────────────────────────────────────
+// Bridges Riverpod's authProvider to GoRouter's refreshListenable.
+// GoRouter stays alive as a single stable instance; when auth state changes,
+// GoRouter re-evaluates its redirect() without rebuilding the whole router.
+class _AuthListenable extends ChangeNotifier {
+  _AuthListenable(this._ref) {
+    _ref.listen<dynamic>(authProvider, (prev, next) => notifyListeners());
+  }
+  final Ref _ref;
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authProvider);
+  final authListenable = _AuthListenable(ref);
 
-  return GoRouter(
+  final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: _resolveInitial(auth),
+    initialLocation: _resolveInitial(ref.read(authProvider)),
+    refreshListenable: authListenable,
     redirect: (context, state) {
       final user = ref.read(authProvider);
       final loc = state.matchedLocation;
@@ -69,7 +80,6 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Phase 7: admin routes to /admin shell
       if (isAdmin) {
-        // Admin should not go to /canteen or /student
         if (loc.startsWith('/canteen') || loc.startsWith('/student')) {
           return '/admin';
         }
@@ -230,6 +240,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+
+  // Dispose the listenable when the provider is disposed
+  ref.onDispose(authListenable.dispose);
+
+  return router;
 });
 
 String _resolveInitial(dynamic userOrRole) {

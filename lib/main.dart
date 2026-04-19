@@ -43,8 +43,14 @@ void main() async {
   // Load cart from local storage
   await container.read(cartProvider.notifier).load();
 
-  // Load orders
-  await container.read(orderProvider.notifier).load();
+  // Load orders on startup only if a session was already restored.
+  // Skip when user is not logged in — avoids a noisy GET /orders/my → 401
+  // in backend logs on every cold start. The orders screen loads them on demand.
+  final restoredUser = container.read(authRepositoryProvider).currentUser;
+  if (restoredUser != null &&
+      (restoredUser.role == 'student' || restoredUser.role == 'faculty')) {
+    await container.read(orderProvider.notifier).load();
+  }
 
   // Phase 11: Load paired thermal printer preference
   await ThermalPrinterService.instance.load();

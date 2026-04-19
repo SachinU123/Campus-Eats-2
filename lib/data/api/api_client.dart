@@ -113,7 +113,11 @@ class ApiClient {
         '[API] [$method] $path → ${response.statusCode} ✓',
         name: 'ApiClient',
       );
-      return ApiResult.success(body['data'], body['message'] as String? ?? 'OK');
+      // Backend may return flat JSON (e.g. {user, accessToken, refreshToken})
+      // OR wrapped JSON ({data: {...}, message: "OK"}).
+      // Prefer the 'data' key when present; fall back to the full body.
+      final payload = body.containsKey('data') ? body['data'] : body;
+      return ApiResult.success(payload, body['message'] as String? ?? 'OK');
     }
 
     var message = 'Request failed';

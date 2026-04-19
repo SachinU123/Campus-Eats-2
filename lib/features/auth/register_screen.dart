@@ -62,10 +62,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               phone: _phoneCtrl.text.trim(),
             );
       }
-
+      // Auth state updated — GoRouter refreshListenable handles navigation.
+      // Clear loading only if still mounted (router transition may dispose widget).
       if (!mounted) return;
       setState(() => _loading = false);
-      context.go('/student');
     } catch (e) {
       if (!mounted) return;
       setState(() {
