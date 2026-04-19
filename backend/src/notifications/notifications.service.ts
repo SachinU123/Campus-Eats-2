@@ -3,13 +3,16 @@
 /// Wraps Firebase Admin SDK to send FCM push notifications.
 ///
 /// Design principles:
-///  - Lazy init: only tries to initialise Firebase if FIREBASE_SERVICE_ACCOUNT_JSON is set.
+///  - Lazy init: only initialises Firebase when all three env vars are present.
 ///  - All errors are caught and logged — notification failure NEVER propagates to order flow.
 ///  - Stale / invalid FCM tokens are handled silently.
 ///
-/// Required environment variable (on Render):
-///   FIREBASE_SERVICE_ACCOUNT_JSON — the full JSON content of your
-///   Firebase service account key file, on a single line.
+/// Required environment variables (on Render):
+///   FIREBASE_PROJECT_ID   — Firebase project ID (e.g. my-campus-eats)
+///   FIREBASE_CLIENT_EMAIL — service account email
+///   FIREBASE_PRIVATE_KEY  — private key, stored as single-line with literal \n sequences
+///
+/// FIREBASE_SERVICE_ACCOUNT_JSON is no longer required or used.
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -31,33 +34,52 @@ export class NotificationsService implements OnModuleInit {
   }
 
   private async _initFirebase() {
-    const raw = this.config.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON');
-    if (!raw) {
+    // ── Read the three separate Render env vars ──────────────────────────────
+    const projectId   = this.config.get<string>('FIREBASE_PROJECT_ID');
+    const clientEmail = this.config.get<string>('FIREBASE_CLIENT_EMAIL');
+    // Render stores private keys as a single line with literal \n sequences —
+    // replace them with real newlines so the PEM is valid.
+    const privateKey  = this.config.get<string>('FIREBASE_PRIVATE_KEY')
+      ?.replace(/\\n/g, '\n');
+
+    // ── Validate — log exactly which vars are missing and exit gracefully ────
+    const missing: string[] = [];
+    if (!projectId)   missing.push('FIREBASE_PROJECT_ID');
+    if (!clientEmail) missing.push('FIREBASE_CLIENT_EMAIL');
+    if (!privateKey)  missing.push('FIREBASE_PRIVATE_KEY');
+
+    if (missing.length > 0) {
       this.logger.warn(
-        '[FCM] FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled',
+        `[FCM] Firebase env vars missing (${missing.join(', ')}) — push notifications disabled`,
       );
       return;
     }
 
+    // ── Dynamic import — keeps the app bootable without firebase-admin ───────
     try {
-      // Dynamic import so build doesn't fail if firebase-admin isn't installed
       admin = await import('firebase-admin').catch(() => null);
       if (!admin) {
-        this.logger.error('[FCM] firebase-admin could not be loaded');
+        this.logger.error('[FCM] firebase-admin package could not be loaded');
         return;
       }
 
-      const serviceAccount = JSON.parse(raw);
-
-      // Only initialise once (HMR-safe)
+      // ── Idempotent init — safe in HMR / watch mode ───────────────────────
       if (admin.apps.length === 0) {
         admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
+          credential: admin.credential.cert({
+            projectId:   projectId!,
+            clientEmail: clientEmail!,
+            privateKey:  privateKey!,
+          }),
         });
       }
+
       this.ready = true;
-      this.logger.log('[FCM] Firebase Admin initialised successfully');
+      this.logger.log(
+        `[FCM] Firebase Admin initialised — project: ${projectId}`,
+      );
     } catch (err) {
+      // Log the reason clearly — never log the raw private key
       this.logger.error(
         `[FCM] Firebase init failed: ${(err as Error).message}`,
       );
